@@ -1,0 +1,61 @@
+# --- Go ---
+
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build output
+bin/
+dist/
+build/
+
+# Go coverage
+coverage.out
+coverage.html
+
+# --- Local run / test output ---
+
+# CLI offline analysis output directory
+report/
+out/
+run-metadata.json
+*.report.json
+
+# --- Logs ---
+
+*.log
+logs/
+
+# --- Secrets & environment ---
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# --- IDEs & editors ---
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- OS ---
+
+Thumbs.db
+Desktop.ini
+
+# --- Temporary files ---
+
+tmp/
+temp/
+*.tmp

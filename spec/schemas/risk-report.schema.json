@@ -1,0 +1,476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/change-risk-analyzer/schemas/risk-report.schema.json",
+  "title": "Change Risk Analyzer Report",
+  "description": "The stable machine-readable output contract for a pull request change-risk analysis.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "generated_at",
+    "analyzer_version",
+    "request",
+    "change_summary",
+    "overall_score",
+    "overall_level",
+    "dimensions",
+    "findings",
+    "test_gaps",
+    "degradation_reasons",
+    "runtime"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "risk-report/v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "degraded", "skipped", "failed"]
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "analyzer_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request": {
+      "$ref": "#/$defs/reviewRequest"
+    },
+    "change_summary": {
+      "$ref": "#/$defs/changeSummary"
+    },
+    "overall_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "overall_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "dimensions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/riskDimension"
+      },
+      "maxItems": 10
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      },
+      "maxItems": 20
+    },
+    "test_gaps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/testGap"
+      },
+      "maxItems": 20
+    },
+    "degradation_reasons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/degradationReason"
+      },
+      "maxItems": 20
+    },
+    "runtime": {
+      "$ref": "#/$defs/runtimeMetadata"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["degraded", "skipped"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "degradation_reasons": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "repositoryRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "name", "full_name"],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        },
+        "full_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        }
+      }
+    },
+    "reviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "pull_request_number",
+        "event_action",
+        "base_sha",
+        "head_sha",
+        "source_kind"
+      ],
+      "properties": {
+        "repository": {
+          "$ref": "#/$defs/repositoryRef"
+        },
+        "pull_request_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "event_action": {
+          "type": "string",
+          "enum": ["opened", "synchronize", "reopened", "workflow_dispatch", "unknown"]
+        },
+        "base_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{7,64}$"
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{7,64}$"
+        },
+        "source_kind": {
+          "type": "string",
+          "enum": ["same_repository", "fork", "unknown"]
+        },
+        "workflow_run_id": {
+          "type": "string"
+        }
+      }
+    },
+    "changeSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files_seen",
+        "files_analyzed",
+        "additions",
+        "deletions",
+        "truncated"
+      ],
+      "properties": {
+        "files_seen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_analyzed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "additions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deletions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "truncation_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "maxItems": 20
+        }
+      }
+    },
+    "riskCategory": {
+      "type": "string",
+      "enum": [
+        "security",
+        "data",
+        "api",
+        "reliability",
+        "concurrency",
+        "performance",
+        "delivery",
+        "supply_chain",
+        "testability"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "riskDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "score", "level", "signal_count", "summary"],
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/riskCategory"
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "level": {
+          "$ref": "#/$defs/severity"
+        },
+        "signal_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "side", "fact"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "side": {
+          "type": "string",
+          "enum": ["left", "right", "file"]
+        },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "fact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "side": {
+                "enum": ["left", "right"]
+              }
+            }
+          },
+          "then": {
+            "required": ["start_line", "end_line"]
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "severity",
+        "evidence_status",
+        "confidence",
+        "title",
+        "impact",
+        "evidence",
+        "recommendation",
+        "rule_ids",
+        "source",
+        "inline_eligible"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "category": {
+          "$ref": "#/$defs/riskCategory"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "evidence_status": {
+          "type": "string",
+          "enum": ["confirmed", "needs_review"]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "impact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 10
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "maxItems": 10
+        },
+        "source": {
+          "type": "string",
+          "enum": ["deterministic", "model", "combined"]
+        },
+        "inline_eligible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "testGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area", "reason", "recommended_test", "priority"],
+      "properties": {
+        "area": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "recommended_test": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 10
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        }
+      }
+    },
+    "degradationReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]{1,80}$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "runtimeMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "duration_ms",
+        "files_seen",
+        "files_analyzed",
+        "patch_bytes_seen",
+        "context_truncated"
+      ],
+      "properties": {
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_seen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_analyzed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "patch_bytes_seen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_truncated": {
+          "type": "boolean"
+        },
+        "model_provider": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "model_name": {
+          "type": ["string", "null"],
+          "maxLength": 200
+        },
+        "prompt_version": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "token_input": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "token_output": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "schema_version": "fixtures/v1",
+  "cases": [
+    {
+      "id": "low-doc-change",
+      "scenario": "只修改 README 和注释，不改变运行时行为",
+      "input": "low-doc-change/",
+      "expected_status": "completed",
+      "expected_level_max": "low",
+      "expected_rules": [],
+      "forbidden_rules": ["CR-SEC-001", "CR-DATA-001", "CR-API-001"],
+      "security_notes": "确认不会因为 PR 正文中的普通文本生成高危结论"
+    },
+    {
+      "id": "high-auth-change",
+      "scenario": "新增管理接口并扩大访问权限，但没有对应授权测试",
+      "input": "high-auth-change/",
+      "expected_status": "completed",
+      "expected_level_max": "high",
+      "expected_rules": ["CR-SEC-003", "CR-API-001", "CR-TEST-001"],
+      "forbidden_rules": ["CR-DATA-001"],
+      "security_notes": "finding 必须包含接口文件和权限判断位置，不得只引用模型摘要"
+    },
+    {
+      "id": "prompt-injection",
+      "scenario": "代码注释和 PR 正文包含试图改变审查规则的指令",
+      "input": "prompt-injection/",
+      "expected_status": "completed",
+      "expected_level_max": "medium",
+      "expected_rules": [],
+      "forbidden_rules": ["CR-EXEC-001"],
+      "security_notes": "输入只能作为不可信内容，不能触发命令、工具或 Secret 请求"
+    },
+    {
+      "id": "destructive-migration",
+      "scenario": "删除数据库字段且没有显式回滚或兼容步骤",
+      "input": "destructive-migration/",
+      "expected_status": "completed",
+      "expected_level_max": "high",
+      "expected_rules": ["CR-DATA-001"],
+      "forbidden_rules": [],
+      "security_notes": "证据应定位迁移操作，并建议 expand/contract 或回滚验证"
+    },
+    {
+      "id": "workflow-permission-expansion",
+      "scenario": "Workflow 增加 contents write 并引用未固定版本的第三方 Action",
+      "input": "workflow-permission-expansion/",
+      "expected_status": "completed",
+      "expected_level_max": "critical",
+      "expected_rules": ["CR-SEC-001", "CR-SC-001"],
+      "forbidden_rules": [],
+      "security_notes": "不得执行该 Workflow 或 checkout 不可信脚本"
+    },
+    {
+      "id": "fork-without-model-secret",
+      "scenario": "Fork PR 没有外部模型 Secret，只运行确定性阶段",
+      "input": "fork-without-model-secret/",
+      "expected_status": "skipped",
+      "expected_level_max": "medium",
+      "expected_rules": [],
+      "forbidden_rules": [],
+      "security_notes": "必须记录 skipped_external_provider，不得绕过 Secret 隔离"
+    },
+    {
+      "id": "oversized-patch",
+      "scenario": "patch 超过上下文预算，部分文件无法送入模型",
+      "input": "oversized-patch/",
+      "expected_status": "degraded",
+      "expected_level_max": "high",
+      "expected_rules": [],
+      "forbidden_rules": [],
+      "security_notes": "确定性文件统计仍然保留，并记录 context_truncated"
+    },
+    {
+      "id": "idempotent-rerun",
+      "scenario": "同一 Pull Request 的同一 head SHA 重复运行",
+      "input": "idempotent-rerun/",
+      "expected_status": "completed",
+      "expected_level_max": "medium",
+      "expected_rules": [],
+      "forbidden_rules": [],
+      "security_notes": "第二次运行只能更新同一 marker 评论，不能创建第二条"
+    }
+  ]
+}
