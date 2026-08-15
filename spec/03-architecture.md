@@ -73,6 +73,14 @@ CommentWriter
 - 新旧路径、行号、增删行数。
 - 文件名大小写和路径规范化。
 
+当前离线入口为 `ParseUnifiedDiff(input, Options)`：
+
+- 空输入返回带 base/head SHA 的空 `ChangeSet`；非空输入必须包含 `diff --git` 文件段。
+- 每个文件保留规范化的 unified patch（从 `---`/`+++` 或首个 hunk 开始）；二进制和无 hunk 文件的 `patch` 为 `nil`。
+- 完整 hunk 仍用于统计 additions/deletions；单文件或总 patch 超限只裁剪保留的 patch，并设置 `patch_truncated`、`truncated` 和稳定的原因码。
+- 返回内部 `AddedLine` 索引，记录新增文件右侧的正数行号；该索引不直接进入 RiskReport schema。
+- 路径规范化为仓库相对路径，拒绝绝对路径、Unix/Windows 穿越路径和 NUL；文件按新路径稳定排序。
+
 ### `internal/signals`
 
 规则是纯函数或只依赖显式输入的分析器：

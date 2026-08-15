@@ -3,9 +3,9 @@
 ## 当前状态
 
 - 项目阶段：Phase 1 - 离线确定性内核
-- 当前检查点：C1
-- 当前功能：领域对象和报告协议
-- 总体状态：in_progress（C1 completed，等待进入 C2）
+- 当前检查点：C2
+- 当前功能：unified diff 解析
+- 总体状态：in_progress（C2 completed，等待进入 C3）
 - 最后更新：2026-08-15
 
 ## 检查点列表
@@ -14,7 +14,7 @@
 | ------ | -------------------------------------- | ----------- |
 | C0     | 设计文档、agents.md、Schema 和 Fixture | completed   |
 | C1     | 领域对象和报告协议                     | completed   |
-| C2     | unified diff 解析                      | pending     |
+| C2     | unified diff 解析                      | completed   |
 | C3     | 确定性风险规则                         | pending     |
 | C4     | 风险策略和报告构建                     | pending     |
 | C5     | Fake GitHub Client                     | pending     |
@@ -124,6 +124,31 @@
 - 当前仅实现领域校验和 schema 校验，不包含报告构建、Markdown 渲染或策略评分。
 - JSON Schema 校验使用仓库内置副本；后续协议变更必须同步更新两份文件并增加一致性检查。
 
+### C2：unified diff 解析
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `internal/change/parser.go`，提供离线 `ParseUnifiedDiff` 入口和资源上限选项。
+- 解析新增、修改、删除、重命名、复制、二进制和无 hunk 文件。
+- 解析 hunk 行号，统计完整 additions/deletions，并返回新增右侧行号索引。
+- 规范化仓库相对路径，拒绝绝对路径、Unix/Windows 穿越路径和 NUL 输入。
+- 支持默认及自定义单文件/总 patch 上限，超限时设置显式截断状态和稳定原因。
+- 新增 `internal/change/parser_test.go`，覆盖正常、边界、畸形、恶意路径、重复解析和超限输入。
+
+验证结果：
+
+- `go test ./...` 通过。
+- `go test -race ./...` 通过。
+- `go vet ./...` 通过。
+- `gofmt` 检查通过。
+
+已知限制：
+
+- 解析器只接受 git unified diff 文件段，不接受无 `diff --git` 文件头的裸 hunk。
+- 新增行号索引是 C2 内部结果，尚未接入 Evidence、风险规则或报告构建。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -137,23 +162,21 @@
 
 ## 下一步计划
 
-### C2：unified diff 解析
+### C3：确定性风险规则
 
 目标：
 
-- 解析 added、modified、deleted、renamed 文件。
-- 获取增删行数。
-- 处理无 patch 和二进制文件。
-- 建立新增行号映射。
-- 对超大 patch 产生 `patch_truncated` 状态。
+- 在 `internal/signals` 实现首批低误报、纯函数确定性规则。
+- 优先覆盖 Workflow 权限扩大、危险外部输入路径和高影响公共 API 变化。
+- 每条 signal 带稳定 rule ID、事实、来源、权重和可复核 Evidence。
 
 前置条件：
 
-- C1 领域对象完成。
-- `ChangedFile` 和 `ChangeSet` 的字段冻结。
+- C1 领域对象和 C2 diff parser 完成。
+- `ChangedFile`、`ChangeSet` 和新增行号索引语义冻结。
 
 验收标准：
 
-- 通过低风险、重命名、删除、二进制和超大 patch Fixture。
-- 行号映射测试通过。
-- 同一 patch 重复解析产生稳定结果。
+- 每条规则有正例、反例、边界例和误报说明。
+- signal 输出通过领域校验，Evidence 路径和行号来自 C2 解析结果。
+- 同一 ChangeSet 重复分析产生稳定、去重后的 signal 结果。

@@ -42,6 +42,8 @@ ChangedFile {
 }
 ```
 
+离线 diff 解析器将 `patch` 规范化为单文件 unified patch，通常从 `---`/`+++` 文件头开始；二进制文件和没有 hunk 的文件使用 `null` 表示无 patch。超过单文件或总 patch 预算时保留确定性增删统计，只裁剪 patch 内容并设置 `patch_truncated`/`ChangeSet.truncated` 及原因。
+
 ### 1.3 `ChangeSet`
 
 ```text
