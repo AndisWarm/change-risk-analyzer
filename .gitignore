@@ -26,9 +26,9 @@ out/
 run-metadata.json
 *.report.json
 
-# The internal/report package is source code, not local report output.
-!internal/report/
-!internal/report/**
+# The server/internal/report package is source code, not local report output.
+!server/internal/report/
+!server/internal/report/**
 
 # --- Logs ---
 

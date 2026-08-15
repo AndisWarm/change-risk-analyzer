@@ -40,6 +40,16 @@ go-risk-analyzer analyze --event ./event.json --diff ./change.patch --mode offli
 
 未来如果需要跨仓库安装、历史数据、异步队列或组织级配置，只增加 GitHub App/Webhook 适配层，不改变 `ChangeSet`、`RiskSignal`、`RiskReport` 和 `Policy` 核心对象。
 
+### 2.3 仓库布局
+
+仓库根目录保存设计文档、协议和 Go 工作区文件；分析实现位于 `server/`，GitHub Action 包装层位于 `client/`：
+
+- `server/` 是唯一 Go module，保留模块路径 `change-risk-analyzer`，并拥有 `internal/` 包和未来 CLI。
+- 根目录 `go.work` 使用 `./server`，方便从仓库根目录执行本地 Go 开发命令。
+- `client/` 不提供网页界面，也不导入 `server/internal`；它只在二进制发布能力完成后负责下载并启动已校验的分析程序。
+
+该布局只调整实现和包装边界，不改变 `RiskReport` schema、GitHub 权限或运行形态。对应决策见 `spec/decisions/004-repository-module-layout.md`。
+
 ## 3. 模块边界
 
 ### `internal/event`

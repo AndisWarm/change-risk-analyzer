@@ -114,11 +114,14 @@ Secret 只能通过环境变量传入（`GITHUB_TOKEN`、`MODEL_API_KEY`），�
 本项目是一个 Go 项目，设计文档和协作契约是事实源，详见 [`agents.md`](agents.md)。
 
 ```text
+client/                   GitHub Action packaging layer (not a web UI)
+server/                   Go analyzer module and future CLI
 spec/                     设计文档、协议 schema、fixture 和决策记录
   README.md               设计索引
   schemas/                机器可读协议（risk-report.schema.json）
   fixtures/               固定评测样例
   decisions/              架构决策记录（ADR）
+go.work                   Root Go workspace
 ```
 
 当前处于 Phase 1（离线确定性内核），实施状态见 [`spec/implementation-status.md`](spec/implementation-status.md)，路线图见 [`spec/10-roadmap.md`](spec/10-roadmap.md)。

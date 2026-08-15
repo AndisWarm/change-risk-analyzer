@@ -4,8 +4,8 @@
 
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C3
-- 当前功能：`CR-API-001` exported API change
-- 总体状态：in_progress（`CR-API-001` completed，C3 remaining）
+- 当前功能：`CR-SC-001` floating action/dependency reference（下一功能）
+- 总体状态：in_progress（`CR-CON-001` completed；C3 确定性规则仍未完成）
 - 最后更新：2026-08-15
 
 ## 检查点列表
@@ -67,6 +67,58 @@
 - 文档没有已知 linter 错误
 
 ## 当前工作
+
+### A1：开发总控计划（非软件检查点记录）
+
+- 2026-08-15 新增根目录 `DEVELOPMENT_PLAN.md`，用于约束后续会话的切片范围、状态证据、验收命令和实施日志。
+- 该记录仅说明计划文档已写入；不改变 C1-C9 的实现状态，也不代表目录迁移、GitHub Action 或任何未实现能力已经完成。
+- 本次未修改已有风险规则实现；工程目录迁移仍是下一项 `PLANNED` 工作。
+
+### A2：工程目录迁移（非检查点辅助交付）
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增根目录 `go.work`，使用 `./server` 作为本地 Go 工作区模块。
+- 将根目录 `go.mod`、`go.sum` 和全部 `internal/` 原样迁移至 `server/`；模块路径保持 `change-risk-analyzer`，既有 Go 导入路径不变。
+- 新增 `client/README.md`，明确该目录是未来 GitHub Action 包装层，不是网页客户端，也尚未包含 `action.yml`。
+- 新增 `spec/decisions/004-repository-module-layout.md`，记录客户端包装层与服务端分析内核的模块边界。
+- 更新架构说明、README 和 `.gitignore`，使 `server/internal/report` 始终作为源代码跟踪。
+
+验证结果：
+
+- 根目录 `go test ./server/...` 和 `go vet ./server/...` 通过。
+- `server/` 内 `go test ./...`、`go test -race ./...` 和 `go vet ./...` 通过。
+- `gofmt` 检查和 `git diff --check` 通过。
+
+已知限制：
+
+- 目录迁移不提供 CLI、GitHub Action、二进制发布或网页功能。
+- `client/` 只能在版本化二进制发布完成后开始实现可安装 Action。
+
+### Phase 1 Slice：离线事件解析
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `server/internal/event/pull_request.go`，提供纯函数 `ParsePullRequestEvent([]byte)`，将完整 Pull Request Action event JSON 转为经过领域校验的 `ReviewRequest`。
+- 映射 `opened`、`synchronize`、`reopened`；其他动作保留为 `unknown`，使调用方能按策略决定是否分析。
+- 根据 head repository 与目标 repository 区分 `same_repository`、`fork` 和 `unknown`，不读取 GitHub API。
+- 为空输入、非法 JSON、缺失 PR、非法 SHA 和 `workflow_dispatch` 返回不包含原始 payload 的结构化错误。
+- 新增 `server/internal/event/pull_request_test.go`，覆盖同仓、Fork、未知动作、未知来源和全部失败路径。
+
+验证结果：
+
+- `go test ./server/internal/event` 通过。
+- 根目录 `go test ./server/...` 和 `go vet ./server/...` 通过。
+- `server/` 内 `go test -race ./...`、`go vet ./...` 和 `gofmt` 检查通过。
+
+已知限制：
+
+- 真实 `workflow_dispatch` 不携带可发布的 base/head SHA；当前解析器明确拒绝，后续 C6 GitHub 适配器必须根据显式 PR number 重新读取并验证身份。
+- 本切片不读取事件文件路径、不调用 GitHub API，也不提供 CLI。
 
 ### C1：领域对象和报告协议
 
@@ -176,6 +228,52 @@
 - 当时只实现 `CR-SEC-001`；后续已补充 `CR-API-001`，外部输入、迁移、依赖和 Go 并发规则仍未实现。
 - signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
 
+### C3 Slice：`CR-DATA-001` destructive migration
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `internal/signals/destructive_migration.go`，检测迁移 SQL 中新增的破坏性数据操作。
+- 覆盖 `DROP TABLE`、`DROP COLUMN`、`TRUNCATE` 和无界 `DELETE`/`WHERE 1=1`。
+- 限定迁移目录 SQL 文件，忽略安全变更、注释/字符串、删除侧旧操作、二进制和无 patch 文件。
+- 新增 `internal/signals/destructive_migration_test.go`，覆盖正例、反例、边界、路径、畸形 patch、稳定排序和取消上下文。
+
+验证结果：
+
+- `go test ./...` 通过。
+- `go test -race ./...` 通过。
+- `go vet ./...` 通过。
+- `gofmt` 检查通过。
+
+已知限制：
+
+- 当前规则不分析回滚、备份、双写或跨行 SQL 数据流。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
+### C3 Slice：`CR-EXEC-001` untrusted command execution signal
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `internal/signals/command_execution.go`，检测新增 Go patch 行中的动态 `exec.Command`/`exec.CommandContext` 调用。
+- 覆盖动态命令名、shell `-c`/`/c`/`-Command`、字符串拼接和 `fmt.Sprintf` 参数。
+- 只输出带右侧行号 Evidence 的候选 signal，不执行命令、不判断外部输入可达性。
+- 新增 `internal/signals/command_execution_test.go`，覆盖正例、静态反例、注释/字符串、文件边界、畸形 patch、稳定排序和取消上下文。
+
+验证结果：
+
+- `go test ./...` 通过。
+- `go test -race ./...` 通过。
+- `go vet ./...` 通过。
+- `gofmt` 检查通过。
+
+已知限制：
+
+- 当前规则只处理单行 `exec.Command` 调用，不分析跨行参数和复杂数据流。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
 ### C3 Slice：`CR-API-001` exported API change
 
 状态：completed（2026-08-15）
@@ -199,12 +297,57 @@
 - 当前只实现导出声明级线索，不分析路由、协议字段、消费者兼容性或接口方法体变化。
 - signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
 
+### C3 Slice：`CR-REL-001` external request without timeout
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `server/internal/signals/external_request_timeout.go`，检测新增 Go patch 行中缺少可见 timeout 或取消边界的有限范围 HTTP 调用。
+- 覆盖 `http.Get`、`http.Head`、`http.Post`、`http.PostForm`、`http.DefaultClient.Do` 和内联 `http.Client.Do`。
+- 对可见 `WithContext`、`NewRequestWithContext`、`WithTimeout`、`WithDeadline` 或 `http.Client.Timeout` 保持无信号；命名 client 不作配置推断。
+- 只输出带新增右侧行号的候选 signal，不执行网络请求、不判断真实可达性或最终严重度。
+- 新增 `server/internal/signals/external_request_timeout_test.go`，覆盖正例、反例、边界、注释/字符串、删除侧、稳定排序、取消上下文和畸形 patch。
+
+验证结果：
+
+- `go test ./server/internal/signals -run ExternalRequestWithoutTimeout` 通过。
+- 根目录 `go test ./server/...` 和 `go vet ./server/...` 通过。
+- `server/` 内 `go test -race ./...`、`go vet ./...` 和 `gofmt` 检查通过。
+
+已知限制：
+
+- 规则不分析命名 client 的构造、跨行 request/context 传播、重试和服务入口暴露度。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
+### C3 Slice：`CR-CON-001` new goroutine lifecycle signal
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `server/internal/signals/goroutine_lifecycle.go`，检测新增 Go goroutine 缺少可见生命周期或取消信号的候选。
+- 覆盖命名 `go` 调用与匿名闭包；在调用行或新增闭包内识别 `ctx`、停止通道、`cancel` 和 `WaitGroup.Done` 等线索。
+- 只输出启动行的新增右侧行号 Evidence，不执行 goroutine、不分析被调用函数或跨文件数据流。
+- 新增 `server/internal/signals/goroutine_lifecycle_test.go`，覆盖正例、可见生命周期反例、边界、注释/字符串、稳定排序、取消上下文和畸形 patch。
+
+验证结果：
+
+- `go test ./server/internal/signals -run GoroutineLifecycle` 通过。
+- 根目录 `go test ./server/...` 和 `go vet ./server/...` 通过。
+- `server/` 内 `go test -race ./...`、`go vet ./...` 和 `gofmt` 检查通过。
+
+已知限制：
+
+- 规则不证明 goroutine 泄漏，不分析跨函数取消、channel 生产/消费、真实 WaitGroup 配对或长闭包。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
 - 当前没有接入真实模型。
 - 当前没有实现 PR 评论发布。
-- 当前已实现 `CR-SEC-001` 和 `CR-API-001`，其余风险规则仍在设计/实现阶段。
+- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001` 和 `CR-CON-001`，其余风险规则仍在设计/实现阶段。
 
 ## 阻塞事项
 
@@ -212,21 +355,21 @@
 
 ## 下一步计划
 
-### C3 下一功能：`CR-EXEC-001` untrusted command execution signal
+### C3 下一功能：`CR-SC-001` floating action/dependency reference
 
 目标：
 
-- 在 `internal/signals` 增加外部输入流向命令执行入口的确定性线索。
-- 只处理 C2 提供的新增/删除 patch 行，输出稳定 rule ID 和 Evidence。
+- 在 `server/internal/signals` 增加新增 GitHub Action、Go 依赖或镜像浮动版本引用的确定性供应链线索。
+- 只处理 C2 提供的新增 patch 行，输出稳定 rule ID 和 Evidence。
 - 保持模型、策略评分和报告构建不变。
 
 前置条件：
 
-- C1 领域对象、C2 diff parser、`CR-SEC-001` 和 `CR-API-001` 完成。
-- 命令执行线索的 Evidence 语义明确且不需要扩展 RiskReport schema。
+- C1 领域对象、C2 diff parser、现有 C3 规则完成。
+- 供应链引用 Evidence 语义明确且不需要扩展 RiskReport schema。
 
 验收标准：
 
-- 提供命令执行线索的正例、反例、边界例和误报说明。
+- 提供浮动引用线索的正例、反例、边界例和误报说明。
 - signal 通过领域校验，路径和行号来自 C2 解析结果。
 - 同一 ChangeSet 重复分析产生稳定、去重后的 signal。
