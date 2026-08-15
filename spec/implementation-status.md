@@ -4,8 +4,8 @@
 
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C3
-- 当前功能：`CR-SEC-001` Workflow write permission
-- 总体状态：in_progress（`CR-SEC-001` completed，C3 remaining）
+- 当前功能：`CR-API-001` exported API change
+- 总体状态：in_progress（`CR-API-001` completed，C3 remaining）
 - 最后更新：2026-08-15
 
 ## 检查点列表
@@ -173,7 +173,30 @@
 
 已知限制：
 
-- 当前只实现 `CR-SEC-001`，尚未实现公共 API、外部输入、迁移、依赖或 Go 并发规则。
+- 当时只实现 `CR-SEC-001`；后续已补充 `CR-API-001`，外部输入、迁移、依赖和 Go 并发规则仍未实现。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
+### C3 Slice：`CR-API-001` exported API change
+
+状态：completed（2026-08-15）
+
+完成内容：
+
+- 新增 `internal/signals/api_changes.go`，实现 Go 导出函数、类型、变量和常量的删除/签名替换检测。
+- 新增 `internal/signals/api_changes_test.go`，覆盖删除、签名替换、泛型函数、类型/变量/常量、兼容性新增和路径边界。
+- Evidence 同时支持删除侧和新增侧行号，signal 按文件和行号稳定排序。
+- 排除 `internal/`、`vendor/`、`_test.go`、注释、字符串和只新增 API，控制词法规则误报。
+
+验证结果：
+
+- `go test ./...` 通过。
+- `go test -race ./...` 通过。
+- `go vet ./...` 通过。
+- `gofmt` 检查通过。
+
+已知限制：
+
+- 当前只实现导出声明级线索，不分析路由、协议字段、消费者兼容性或接口方法体变化。
 - signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
 
 ## 已知限制
@@ -181,7 +204,7 @@
 - 当前没有接入真实 GitHub API。
 - 当前没有接入真实模型。
 - 当前没有实现 PR 评论发布。
-- 当前风险规则仍然是设计阶段。
+- 当前已实现 `CR-SEC-001` 和 `CR-API-001`，其余风险规则仍在设计/实现阶段。
 
 ## 阻塞事项
 
@@ -189,21 +212,21 @@
 
 ## 下一步计划
 
-### C3 下一功能：`CR-API-001` exported API change
+### C3 下一功能：`CR-EXEC-001` untrusted command execution signal
 
 目标：
 
-- 在 `internal/signals` 增加公共 API 删除或签名改变的确定性线索。
+- 在 `internal/signals` 增加外部输入流向命令执行入口的确定性线索。
 - 只处理 C2 提供的新增/删除 patch 行，输出稳定 rule ID 和 Evidence。
 - 保持模型、策略评分和报告构建不变。
 
 前置条件：
 
-- C1 领域对象、C2 diff parser 和 `CR-SEC-001` 完成。
-- 公共 API 变化的 Evidence 语义明确且不需要扩展 RiskReport schema。
+- C1 领域对象、C2 diff parser、`CR-SEC-001` 和 `CR-API-001` 完成。
+- 命令执行线索的 Evidence 语义明确且不需要扩展 RiskReport schema。
 
 验收标准：
 
-- 提供公共 API 的正例、反例、边界例和误报说明。
+- 提供命令执行线索的正例、反例、边界例和误报说明。
 - signal 通过领域校验，路径和行号来自 C2 解析结果。
 - 同一 ChangeSet 重复分析产生稳定、去重后的 signal。
