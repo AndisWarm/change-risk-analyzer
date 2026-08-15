@@ -3,9 +3,9 @@
 ## 当前状态
 
 - 项目阶段：Phase 1 - 离线确定性内核
-- 当前检查点：C2
-- 当前功能：unified diff 解析
-- 总体状态：in_progress（C2 completed，等待进入 C3）
+- 当前检查点：C3
+- 当前功能：`CR-SEC-001` Workflow write permission
+- 总体状态：in_progress（`CR-SEC-001` completed，C3 remaining）
 - 最后更新：2026-08-15
 
 ## 检查点列表
@@ -15,7 +15,7 @@
 | C0     | 设计文档、agents.md、Schema 和 Fixture | completed   |
 | C1     | 领域对象和报告协议                     | completed   |
 | C2     | unified diff 解析                      | completed   |
-| C3     | 确定性风险规则                         | pending     |
+| C3     | 确定性风险规则                         | in_progress |
 | C4     | 风险策略和报告构建                     | pending     |
 | C5     | Fake GitHub Client                     | pending     |
 | C6     | GitHub API 接入                        | pending     |
@@ -149,6 +149,33 @@
 - 解析器只接受 git unified diff 文件段，不接受无 `diff --git` 文件头的裸 hunk。
 - 新增行号索引是 C2 内部结果，尚未接入 Evidence、风险规则或报告构建。
 
+### C3 Slice：`CR-SEC-001` Workflow write permission
+
+状态：completed（2026-08-15）
+
+本轮功能：`CR-SEC-001` Workflow write permission。
+
+完成内容：
+
+- 新增 `internal/signals/workflow_permissions.go`，实现 `Analyzer` 接口和 Workflow 写权限分析器。
+- 新增 `internal/signals/workflow_permissions_test.go`，覆盖正例、反例、边界和恶意文本输入。
+- 识别新增的细粒度 `write` 权限、inline permissions 和 `write-all`。
+- 只处理 Workflow 文件的新增 patch 行，按文件合并 signal，并生成右侧行级 Evidence。
+- 对 `read`、普通配置文件、注释、二进制和无 patch 输入保持无信号。
+- 新增正例、反例、边界、注释、缺失 patch、稳定排序和取消上下文测试。
+
+验证结果：
+
+- `go test ./...` 通过。
+- `go test -race ./...` 通过。
+- `go vet ./...` 通过。
+- `gofmt` 检查通过。
+
+已知限制：
+
+- 当前只实现 `CR-SEC-001`，尚未实现公共 API、外部输入、迁移、依赖或 Go 并发规则。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -162,21 +189,21 @@
 
 ## 下一步计划
 
-### C3：确定性风险规则
+### C3 下一功能：`CR-API-001` exported API change
 
 目标：
 
-- 在 `internal/signals` 实现首批低误报、纯函数确定性规则。
-- 优先覆盖 Workflow 权限扩大、危险外部输入路径和高影响公共 API 变化。
-- 每条 signal 带稳定 rule ID、事实、来源、权重和可复核 Evidence。
+- 在 `internal/signals` 增加公共 API 删除或签名改变的确定性线索。
+- 只处理 C2 提供的新增/删除 patch 行，输出稳定 rule ID 和 Evidence。
+- 保持模型、策略评分和报告构建不变。
 
 前置条件：
 
-- C1 领域对象和 C2 diff parser 完成。
-- `ChangedFile`、`ChangeSet` 和新增行号索引语义冻结。
+- C1 领域对象、C2 diff parser 和 `CR-SEC-001` 完成。
+- 公共 API 变化的 Evidence 语义明确且不需要扩展 RiskReport schema。
 
 验收标准：
 
-- 每条规则有正例、反例、边界例和误报说明。
-- signal 输出通过领域校验，Evidence 路径和行号来自 C2 解析结果。
-- 同一 ChangeSet 重复分析产生稳定、去重后的 signal 结果。
+- 提供公共 API 的正例、反例、边界例和误报说明。
+- signal 通过领域校验，路径和行号来自 C2 解析结果。
+- 同一 ChangeSet 重复分析产生稳定、去重后的 signal。

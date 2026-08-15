@@ -84,6 +84,16 @@ Rule {
 }
 ```
 
+### 4.1 已实现规则：`CR-SEC-001`
+
+`CR-SEC-001`（Workflow write permission）是确定性线索规则，输入为 C2 规范化后的 `.github/workflows/*.yml` 或 `.yaml` 文件 patch。
+
+- 命中：新增 `contents/actions/checks/deployments/discussions/id-token/issues/packages/pull-requests/security-events/statuses: write`、`permissions: write-all`，或 inline `permissions` 中的上述写权限。
+- 证据：只定位到 patch 中新增行的 `side=right` 和正数行号；每个 Workflow 文件合并为一条 signal。
+- 输出：`category=security`、`source=deterministic`、`confidence=1`、默认 `weight=30`，不直接产生 Finding、总分或门禁结果。
+- 不命中：`read`/`read-all`、普通配置文件、二进制/无 patch 文件，以及注释中的权限文本。
+- 误报边界：规则只把明确的 GitHub 权限键视为候选，不对任意 YAML 键的 `write` 值报警；后续需要结合 Workflow 上下文和策略层确认影响。
+
 ## 5. 规则组合
 
 单个弱线索不应直接制造 `high`：
