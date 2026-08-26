@@ -154,7 +154,7 @@ gofmt 检查
 | 10 | 信号运行器与 fixture 接入 | `DONE` | 运行器聚合十条规则输出，去重与全局稳定排序有测试与金样固化。 |
 | 11 | C4 策略引擎 | `DONE` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
 | 12 | C4 报告构建与渲染 | `DONE` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
-| 13 | 离线 CLI | `PLANNED` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
+| 13 | 离线 CLI | `DONE` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
 | 14 | C5 Fake GitHub Client | `PLANNED` | 覆盖分页、429、超时、权限错误和 head SHA 校验。 |
 | 15 | C6 GitHub 只读 REST 适配器 | `PLANNED` | 读取 PR、文件和 patch；不执行 PR 代码。 |
 | 16 | 版本化二进制发布构建 | `PLANNED` | 构建 Linux amd64 包与 SHA-256 校验清单。 |
@@ -297,3 +297,12 @@ gofmt 检查
 - 验证：`go test ./internal/report -v` 通过（16 个测试：正例、JSON 往返、空输入、超限截断、8 组非法输入、确定性、金样、转义、nil 拒绝等）；`go test ./...` 通过（6 包 ok）；`go test -race ./...` 通过（6 包 ok）；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
 - 限制：状态推导规则与 `findings-truncated` 原因码措辞为待用户追认的实现层口径；Runtime 元数据作为显式入参传入、TestGaps 恒为空列表（无生产者）；Markdown 尚未接入 Step Summary、Artifact 或评论发布链路。
 - 下一功能：离线 CLI（切片 13），随后进入 C5 Fake GitHub Client（切片 14）。
+
+### 2026-08-26 - 离线命令行工具
+
+- 状态：`DONE`。里程碑意义：首次把 C1-C4 的领域能力串成一条可实际运行的端到端离线分析链路——不接 GitHub、不接模型，一条命令即可从事件 JSON + diff 得到通过双重校验的风险报告。
+- 修改：新增 `server/cmd/go-risk-analyzer/main.go`（进程装配薄壳）、`app.go`（参数解析与 `runAnalyze(ctx, options)` 编排）、`app_test.go`（5 个测试函数/11 个子用例）；更新 `spec/implementation-status.md`（顶部状态、新增切片 13 小节、「下一步计划」替换为切片 14）；本文件任务表与日志同步。未修改任何协议文档、schema 或 ADR（CLI 参数名、输出文件名与退出码语义均落在 spec/05 既有约定内）。
+- 行为：`go-risk-analyzer analyze --event <事件JSON> --diff <diff> --output <目录>` 无网络完成「事件解析 → diff 解析（携带事件 SHA）→ 十条规则运行 → 策略求值 → 报告构建双重校验 → 写出 risk-report.json / risk-report.md」；成功恒退出码 0（高风险也不阻塞，门禁属切片 23）；文件不存在、非法 JSON/diff、报告校验失败、写盘失败返回非零退出码并输出不含原始内容的中文错误（用法错误=2、操作失败=1）；支持两级 `--version`。AnalyzerVersion 固定常量 `0.1.0-dev`，GeneratedAt 取实时 UTC 时钟（复现需排除该字段，口径已记录），DegradationReasons 空列表。
+- 验证：`server/` 内 `go build ./...` 通过；`go test ./cmd/go-risk-analyzer/... -v` 通过（16 个 PASS 项）；`go test ./...` 通过（7 包 ok）；`go test -race ./...` 通过（7 包 ok）；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。另以临时目录真实二进制冒烟验证版本输出、成功路径与缺失文件错误路径。
+- 限制：仅离线输入，不接 GitHub API/模型/发布链路；上限沿用解析器默认值不可经 CLI 配置；GeneratedAt 为真实时钟。
+- 下一功能：C5 Fake GitHub Client（切片 14）。

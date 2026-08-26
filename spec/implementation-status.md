@@ -5,7 +5,7 @@
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C5（Fake GitHub Client）
 - 当前功能：`C5 Fake GitHub Client`（下一功能）
-- 总体状态：in_progress（C4 completed）
+- 总体状态：in_progress（C4 completed；切片 13 离线命令行工具 completed）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -517,6 +517,33 @@
 - Runtime 元数据无法由其他输入推导，作为显式入参传入；TestGaps 尚无生产者，当前报告恒为空列表。
 - Markdown 尚未接入 Step Summary、Artifact 或评论发布链路（属后续切片）；无 CLI 入口。
 
+### 切片 13：离线命令行工具（非检查点辅助交付）
+
+状态：completed（2026-08-26）。本切片首次把 C1-C4 的领域能力串成一条可实际运行的端到端离线分析链路。
+
+完成内容：
+
+- 新增 `server/cmd/go-risk-analyzer/main.go`（仅做进程装配的薄壳，无业务逻辑）与 `server/cmd/go-risk-analyzer/app.go`（参数解析 + 可测试编排入口 `runAnalyze(ctx, options)`）、`app_test.go`。
+- 子命令 `analyze --event <path> --diff <path> --output <dir>` 在完全无网络条件下完成全链路：读入事件 JSON 与 unified diff → `ParsePullRequestEvent` / `ParseUnifiedDiff`（携带事件 base/head SHA）→ `signals.DefaultRunner().Run` → `policy.Evaluate` → `report.Build` 双重校验 → 渲染并写出 `risk-report.json` 与 `risk-report.md`（文件名与 spec/05 第 6 节 Artifact 约定一致）。
+- ChangeSummary 与 Runtime 元数据均由 ChangeSet 显式推导（files seen = analyzed = TotalFiles、增删行数、截断状态与原因、patch 字节数、本进程耗时）；AnalyzerVersion 固定为常量 `0.1.0-dev`；GeneratedAt 取 `time.Now().UTC()`；DegradationReasons 传空列表，离线模式暂无降级源。
+- 行为约定：分析成功即退出码 0，即使存在高风险发现也不阻塞合并（门禁属切片 23，符合 spec/05 第 9 节）；操作类失败返回非零退出码并向 stderr 输出简明中文错误，不回显原始文件内容或 patch 内容；用法错误退出码 2、运行失败退出码 1；支持顶层与 analyze 子命令两级 `--version`。
+- 新增 5 个测试函数（11 个子用例）：端到端正例（双 Workflow 写权限信号合计 60 分/high 且退出码仍为 0，输出通过 schema 与领域双重校验）、空 diff 产出合法 low 报告、缺失必填参数与未知命令（6 个子用例）、操作失败路径（事件/diff 文件不存在、非法 JSON、畸形 diff、输出目录指向普通文件，共 5 个子用例）、`--version`。
+
+验证结果：
+
+- `server/` 内 `go build ./...` 通过。
+- `go test ./cmd/go-risk-analyzer/... -v` 通过（16 个 PASS 项）。
+- `go test ./...` 通过（7 包 ok）。
+- `go test -race ./...` 通过（7 包 ok）。
+- `go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 另以临时目录中的真实二进制冒烟运行：`--version` 正常、成功分析退出码 0 并写出两份报告、缺失事件文件时 stderr 输出中文错误且退出码非 0。
+
+已知限制：
+
+- 仅离线输入：不接 GitHub API（切片 15）、不接模型（切片 21）、无评论/Artifact/Step Summary 发布链路（切片 18）。
+- max-files/max-patch-bytes 等上限暂不可经 CLI 配置，沿用 diff 解析器默认值（留待后续调优切片参数化）。
+- GeneratedAt 使用真实时钟，因此重复执行的报告除时间戳外逐字节一致；需要固定时间的复现口径留待发布形态切片明确。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -530,21 +557,22 @@
 
 ## 下一步计划
 
-### 下一功能：离线 CLI（切片 13；按 DEVELOPMENT_PLAN 第 7 节任务表顺序，先于 C5 Fake GitHub Client 实施）
+### 下一功能：C5 Fake GitHub Client（切片 14；DEVELOPMENT_PLAN 第 7 节任务表顺序）
 
 目标：
 
-- 新增 `server/cmd/go-risk-analyzer` CLI 入口：`go-risk-analyzer analyze --event <path> --diff <path> --output <path>` 在完全无网络条件下完成「事件解析 → diff 解析 → 信号运行 → 策略求值 → 报告构建与渲染」全链路，并把通过校验的 JSON 与 Markdown 报告写入 output 指定位置。
-- 仅复用 internal/event、change、signals、policy、report 既有能力；不接 GitHub API、不接模型、不发布评论。
+- 新增 GitHub 客户端接口与 Fake 实现（落在 `server/internal/github`，与 agents.md 模块所有权一致）：Fake Client 可模拟分页列表、429 限流（含 `Retry-After`）、超时、401/403 权限错误和 head SHA 校验失败等行为，为 C6 只读 REST 适配器（切片 15）与 C8 幂等评论发布（切片 19）提供可测试依赖。
 
 前置条件：
 
-- 报告构建器与 Markdown/JSON 渲染器可离线产出通过双重校验的报告（本切片已完成）。
-- 事件解析器（C1 前置切片）、unified diff 解析器（C2）、信号运行器与策略引擎均已就绪并有金样保障。
+- 离线分析链路与 CLI 已就绪（切片 13 完成），策略与报告层可直接消费客户端返回的变更数据。
+- 领域层 `ReviewRequest` 已定义 PR 身份（number/base SHA/head SHA），可作为 head SHA 校验的输入。
 
 验收标准：
 
-- 给定合法 event.json 与 change.patch，命令成功生成通过 `risk-report/v1` schema 校验的 risk-report JSON 和确定性 Markdown；空 diff 可产出合法 low 报告。
-- 全程无网络访问；缺失参数、非法 JSON、畸形 diff 或不可写输出路径返回明确错误信息，不泄露原始 payload 内容。
-- 相同输入重复执行产生一致的报告内容（generated_at 由显式输入或固定策略提供，具体口径在切片内说明）。
-- 全量既有测试继续通过，CLI 层补充正例、反例与边界测试。
+- 分页：跨多页聚合结果完整且顺序稳定。
+- 429/限流：尊重 `Retry-After` 的退避重试有测试覆盖，超过上限后返回明确错误。
+- 超时与取消：上下文超时立即中止并返回可识别错误。
+- 权限错误：401/403 不重试，错误信息不泄露 Token。
+- head SHA 校验：head SHA 与请求身份不一致时可检测并拒绝，防止旧结论误投。
+- 全部用例使用本地 Fake，不发任何真实网络请求；全量既有测试继续通过；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
