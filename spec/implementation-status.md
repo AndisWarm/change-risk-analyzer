@@ -3,9 +3,9 @@
 ## 当前状态
 
 - 项目阶段：Phase 1 - 离线确定性内核
-- 当前检查点：C3
-- 当前功能：「信号运行器与 fixture 接入」（下一功能）
-- 总体状态：in_progress（`CR-TEST-001` completed；C3 收尾仍未完成）
+- 当前检查点：C4（策略引擎）
+- 当前功能：`C4 策略引擎`（下一功能）
+- 总体状态：in_progress（C3 completed；C4 未开始）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -15,7 +15,7 @@
 | C0     | 设计文档、agents.md、Schema 和 Fixture | completed   |
 | C1     | 领域对象和报告协议                     | completed   |
 | C2     | unified diff 解析                      | completed   |
-| C3     | 确定性风险规则                         | in_progress |
+| C3     | 确定性风险规则                         | completed   |
 | C4     | 风险策略和报告构建                     | pending     |
 | C5     | Fake GitHub Client                     | pending     |
 | C6     | GitHub API 接入                        | pending     |
@@ -442,6 +442,27 @@
 - 顶级目录粗匹配可能把无关测试变更当作覆盖证据造成漏报。
 - signal 未进入规则运行器（切片 10），不计算分数或门禁。
 
+### C3 Slice：信号运行器与 fixture 接入
+
+状态：completed（2026-08-26）
+
+完成内容：
+
+- 新增 `server/internal/signals/runner.go` 与 `runner_test.go`：`DefaultRunner` 按 spec/07 第 4 节顺序注册全部十条已实现规则；`NewRunner` 支持自定义注册表并拒绝空 ID、nil 分析器与重复 ID。
+- 聚合语义：按「RuleID+Fact+全部 Evidence 签名」去重；按「类别固定维度顺序→首个证据文件路径→起始行→侧别→规则 ID→事实」全局稳定排序；任一分析器失败或上下文取消立即返回携带规则 ID 的错误，后续分析器不再执行。
+- fixture：新增 `server/internal/signals/testdata/golden_runner.json` 金样快照，覆盖十条规则代表场景的完整聚合输出，由 `GOLDEN_UPDATE=1` 显式刷新；`spec/fixtures/cases.json` 保持面向未来端到端评测的既有定位。
+- 新增 6 个测试：全规则聚合与排序断言（10 条规则 ID 全覆盖）、去重生效、错误传播带 Rule ID 且后续分析器不执行、取消上下文、空 ChangeSet 返回空结果、金样比对。
+
+验证结果：
+
+- `go test ./internal/signals -run Runner` 全部通过。
+- `server/` 内 `go test ./...` 通过（5 包 ok）、`go test -race ./...` 通过、`go vet ./...` 退出码 0、`gofmt -l .` 无输出。
+
+已知限制：
+
+- 运行器只做聚合、去重与排序，不计算分数、门禁或降级记录（属 C4 及以后切片）。
+- golden 快照需随协议或规则演进显式人工刷新。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -455,22 +476,21 @@
 
 ## 下一步计划
 
-### C3 下一功能：信号运行器与 fixture 接入
+### C4 下一功能：策略引擎
 
 目标：
 
-- 在 `server/internal/signals` 新增统一运行器：输入 ChangeSet 与有序的分析器列表，输出聚合、去重、稳定排序后的全部 RiskSignal；不访问网络、不执行仓库代码。
-- 将当前已实现的 9 条规则接入运行器，并通过固定 fixture（参照 `spec/fixtures/` 既有格式）产出可复验的稳定输出。
-- 保持模型、策略评分和报告构建不变。
+- 在 `server/internal/policy` 新增策略引擎：把运行器输出的 RiskSignal 集合转换为 Finding（含证据校验），计算各维度分数、总分与级别，产出默认门禁建议（默认不阻塞合并）。
+- 分数与阈值遵循 `spec/02-risk-model.md` 初始配置；模型输出永不直接参与分数或门禁。
 
 前置条件：
 
-- C1 领域对象、C2 diff parser、现有 C3 全部规则完成。
-- fixture 格式与 golden 断言方式明确且不需要扩展 RiskReport schema。
+- C3 完成（已满足）：运行器可稳定输出全部确定性信号。
+- Finding 结构与证据校验已在领域层就绪。
 
 验收标准：
 
-- 运行器对相同输入产生完全一致的输出：重复 signal 去重、全局稳定排序规则明确且文档化。
-- 取消上下文与单个分析器错误有明确的传播语义。
-- fixture 覆盖每条已实现规则的代表场景，测试断言稳定。
+- Signal 到 Finding 的转换带证据校验，非法证据被拒绝并有明确错误。
+- 维度分数、总分与 LevelFromScore 阈值一致；同一输入结果稳定。
+- 单元测试覆盖正例、空输入、非法证据与阈值边界。
 - 全量既有测试继续通过。

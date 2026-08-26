@@ -217,6 +217,16 @@ Rule {
 - 规则输出按 `category`、路径、行号和 rule ID 排序。
 - 不把 linter 的所有输出复制到报告；只把与变更风险有关系的信号纳入。
 
+### 6.1 已实现：信号运行器
+
+`server/internal/signals/runner.go` 提供统一运行器：按注册顺序执行全部分析器，聚合、去重并稳定排序输出。
+
+- 默认注册顺序与第 4 节规则顺序一致：CR-SEC-001 → CR-API-001 → CR-EXEC-001 → CR-DATA-001 → CR-REL-001 → CR-CON-001 → CR-SC-001 → CR-SEC-002 → CR-SEC-003 → CR-TEST-001。
+- 去重键：RuleID + Fact + 全部 Evidence 的（文件、起止行、侧别、事实）签名，完全相同的信号只保留一条。
+- 全局排序键：类别固定维度顺序 → 首个证据文件路径 → 起始行 → 侧别 → 规则 ID → 事实。
+- 错误传播：任一分析器失败或上下文取消时立即返回携带其规则 ID 的错误，后续分析器不再执行；不静默吞错。
+- fixture：`server/internal/signals/testdata/golden_runner.json` 固化多规则聚合输出的 JSON 快照（覆盖全部十条规则的代表场景），由 `GOLDEN_UPDATE=1` 显式刷新；`spec/fixtures/cases.json` 保持面向未来端到端报告级评测的既有定位，不在信号层耦合。
+
 ## 7. 外部静态工具边界
 
 后续可以消费用户显式提供的静态工具 Artifact，例如 `go vet`、`staticcheck`、`gosec` 或 CodeQL 结果，但首版不运行 PR 代码。
