@@ -3,9 +3,9 @@
 ## 当前状态
 
 - 项目阶段：Phase 1 - 离线确定性内核
-- 当前检查点：C4（策略引擎）
-- 当前功能：`C4 报告构建与渲染`（下一功能）
-- 总体状态：in_progress（C3 completed；策略引擎 completed）
+- 当前检查点：C5（Fake GitHub Client）
+- 当前功能：`C5 Fake GitHub Client`（下一功能）
+- 总体状态：in_progress（C4 completed）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -16,7 +16,7 @@
 | C1     | 领域对象和报告协议                     | completed   |
 | C2     | unified diff 解析                      | completed   |
 | C3     | 确定性风险规则                         | completed   |
-| C4     | 风险策略和报告构建                     | pending     |
+| C4     | 风险策略和报告构建                     | completed   |
 | C5     | Fake GitHub Client                     | pending     |
 | C6     | GitHub API 接入                        | pending     |
 | C7     | Artifact 和 Step Summary               | pending     |
@@ -492,6 +492,31 @@
 - findings 数量上限（spec/03 第 6 节 20 条）与 degradation_reasons 属报告构建职责，本切片不做裁剪或降级记录。
 - 显式多信号组合升级规则（权限扩大+不可信执行路径等）未实现，属 Phase 4 调优范围。
 
+### C4 Slice：报告构建与渲染
+
+状态：completed（2026-08-26）。C4 检查点（风险策略和报告构建）整体完成。
+
+完成内容：
+
+- 新增 `server/internal/report/build.go`：`BuilderInput` 显式入参（ReviewRequest、ChangeSummary、Findings、Dimensions、总分/级别、AnalyzerVersion、GeneratedAt、上游降级原因列表、Runtime 元数据）与纯函数 `Build`；另提供确定性缩进 JSON 渲染 `RenderJSON`。不读取全局状态或环境变量。
+- 输入校验红线：request/change_summary/runtime 非法、analyzer_version 为空白、generated_at 为零值、总分越界或 overall_level 与分数不一致时立即返回错误；组装结果必须通过包内既有双重校验（领域 + 内置 risk-report/v1 schema）后才输出，绝不带病发布。
+- findings 上限裁剪：上限取 spec/03 第 6 节明文规定的 20 条（与 schema `maxItems:20` 一致），非实现层默认值；超限时先经 domain.SortFindings 稳定排序再保留前 20 条（严重级别高者优先），并追加 code=`findings-truncated` 的显式降级原因（消息含截断前后数量与依据）；总分与维度统计仍基于全部线索，不被裁剪影响。空数组序列化为 `[]` 而非 null 以满足协议数组类型。
+- 状态推导口径（已记录的实现层解释）：降级原因列表（含截断原因）非空 ⇒ degraded，否则 completed；保证不出现「completed 带降级原因」或「degraded 无原因」的矛盾形态，对应 spec/01 第 6 节状态模型。
+- 新增 `server/internal/report/markdown.go`：`RenderMarkdown` 确定性渲染——段落遵循 spec/01 第 5.2 节推荐顺序（状态与级别→一句话结论→变更概览→维度表→发现→测试缺口建议→分析范围与降级原因→协议版本）；每条 Finding 输出标题、类别、严重度、来源、规则、证据位置（`文件:行号`+侧别，文件级只列路径）、影响与建议；表格单元格竖线转义为 `\|` 并折叠换行；时间固定为 UTC RFC3339 文本；渲染器只读不改语义，不引入新泄露面。
+- 金样：新增 `server/internal/report/testdata/golden_report.md`，由 `GOLDEN_UPDATE=1` 显式刷新，普通模式逐字节比对（沿用 signals 包 runner 的既有模式）。
+- 新增 11 个测试（build_test.go / markdown_test.go）：策略结果正例（断言排序、维度顺序与 70/high）、JSON 序列化往返 DeepEqual、空信号产出 completed/low 且数组非 nil、25 条超限截断（保留前缀等于独立排序副本前 20、状态 degraded、原因码与数量断言、总分不变）、8 组非法输入反例（缺请求身份、负统计、空白版本、零时间、越界分数、级别不一致、非法 runtime、inline_eligible 违规）、双次构建与乱序输入 DeepEqual、金样比对、逐字节稳定、必需段落断言、表格竖线转义、nil 报告拒绝。
+
+验证结果：
+
+- `go test ./internal/report -v` 通过（16 个测试，含既有 5 个校验测试）。
+- `server/` 内 `go test ./...` 通过（6 包 ok）、`go test -race ./...` 通过（6 包 ok）、`go vet ./...` 退出码 0、`gofmt -l .` 无输出。
+
+已知限制：
+
+- 状态推导规则（有降级原因即 degraded）与 `findings-truncated` 原因码措辞为实现层口径，等待用户追认后如需调整仅影响本包及其调用方。
+- Runtime 元数据无法由其他输入推导，作为显式入参传入；TestGaps 尚无生产者，当前报告恒为空列表。
+- Markdown 尚未接入 Step Summary、Artifact 或评论发布链路（属后续切片）；无 CLI 入口。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -505,22 +530,21 @@
 
 ## 下一步计划
 
-### C4 下一功能：报告构建与渲染
+### 下一功能：离线 CLI（切片 13；按 DEVELOPMENT_PLAN 第 7 节任务表顺序，先于 C5 Fake GitHub Client 实施）
 
 目标：
 
-- 在 `server/internal/report` 新增报告构建器与 Markdown 渲染：把 ReviewRequest、ChangeSet 与策略引擎结果组装为通过 `risk-report/v1` schema 校验的完整 `RiskReport`，并渲染稳定的 Markdown/golden 报告。
-- 报告在发布前冻结为不可变对象；渲染器不改变报告语义；findings 数量上限与显式降级原因在该层落地。
+- 新增 `server/cmd/go-risk-analyzer` CLI 入口：`go-risk-analyzer analyze --event <path> --diff <path> --output <path>` 在完全无网络条件下完成「事件解析 → diff 解析 → 信号运行 → 策略求值 → 报告构建与渲染」全链路，并把通过校验的 JSON 与 Markdown 报告写入 output 指定位置。
+- 仅复用 internal/event、change、signals、policy、report 既有能力；不接 GitHub API、不接模型、不发布评论。
 
 前置条件：
 
-- 策略引擎可稳定输出 Findings、Dimensions、总分与级别（已满足）。
-- 领域层 RiskReport 结构、双重校验与内置 schema 副本就绪（C1 已完成）。
+- 报告构建器与 Markdown/JSON 渲染器可离线产出通过双重校验的报告（本切片已完成）。
+- 事件解析器（C1 前置切片）、unified diff 解析器（C2）、信号运行器与策略引擎均已就绪并有金样保障。
 
 验收标准：
 
-- 构建的 JSON 通过领域校验与 `risk-report/v1` schema 校验。
-- Markdown 渲染确定性强，golden 快照固化并可显式刷新。
-- 同一输入重复构建结果一致；空输入能产出合法的 completed 报告形态。
-- findings 超过上限时输出显式降级原因而非静默丢弃。
-- 全量既有测试继续通过。
+- 给定合法 event.json 与 change.patch，命令成功生成通过 `risk-report/v1` schema 校验的 risk-report JSON 和确定性 Markdown；空 diff 可产出合法 low 报告。
+- 全程无网络访问；缺失参数、非法 JSON、畸形 diff 或不可写输出路径返回明确错误信息，不泄露原始 payload 内容。
+- 相同输入重复执行产生一致的报告内容（generated_at 由显式输入或固定策略提供，具体口径在切片内说明）。
+- 全量既有测试继续通过，CLI 层补充正例、反例与边界测试。

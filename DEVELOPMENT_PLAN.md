@@ -153,7 +153,7 @@ gofmt 检查
 | 9 | `CR-TEST-001` 风险变更测试证据 | `DONE` | 已提供正例、反例、边界例、误报说明和观察式措辞断言。 |
 | 10 | 信号运行器与 fixture 接入 | `DONE` | 运行器聚合十条规则输出，去重与全局稳定排序有测试与金样固化。 |
 | 11 | C4 策略引擎 | `DONE` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
-| 12 | C4 报告构建与渲染 | `PLANNED` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
+| 12 | C4 报告构建与渲染 | `DONE` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
 | 13 | 离线 CLI | `PLANNED` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
 | 14 | C5 Fake GitHub Client | `PLANNED` | 覆盖分页、429、超时、权限错误和 head SHA 校验。 |
 | 15 | C6 GitHub 只读 REST 适配器 | `PLANNED` | 读取 PR、文件和 patch；不执行 PR 代码。 |
@@ -288,3 +288,12 @@ gofmt 检查
 - 验证：`go test ./internal/policy -v` 通过（6 个测试：七类正例、空输入、五组非法证据反例、24/25/49/50/74/75 阈值边界、重复与乱序稳定、门禁中性）；`go test ./...` 通过（6 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
 - 限制：finding 级 severity 映射与维度分数公式在 spec/02 未明文定义，当前采用「单信号贡献分过同一 LevelFromScore 阈值」「总分公式作用于类别子集」的解释口径，已在代码注释与 implementation-status 中记录，等待用户确认后如需调整只影响本包；exposure_factor 与 mitigation_credit 的真实取值留待 Phase 4 调优；findings 上限与降级原因归切片 12 报告构建处理；显式多信号组合升级规则未实现。
 - 下一功能：C4 报告构建与渲染（切片 12）。
+
+### 2026-08-26 - C4 报告构建与渲染
+
+- 状态：`DONE`。C4 检查点（风险策略和报告构建）整体完成。
+- 修改：新增 `server/internal/report/build.go`（BuilderInput 显式入参 + Build 组装 + RenderJSON）、`server/internal/report/markdown.go`（RenderMarkdown 确定性渲染）、`build_test.go`、`markdown_test.go` 与 `internal/report/testdata/golden_report.md` 金样；更新 `spec/implementation-status.md`（顶部状态改为 C5、检查点表 C4 行 completed、新增 C4 切片小节、下一步计划替换为切片 13 离线 CLI）；本文件任务表与日志同步。未修改 `spec/schemas/`、`spec/fixtures/` 与任何协议文档，无需 ADR。
+- 行为：Build 以显式入参组装 RiskReport 并强制通过包内既有双重校验（领域 + 内置 risk-report/v1 schema），非法输入立即报错；findings 超过 spec/03 第 6 节明文上限 20 条时按 domain.SortFindings 稳定排序保留前 20 条并追加 code=`findings-truncated` 的显式降级原因（消息含截断前后数量），总分与维度统计仍基于全部线索；降级原因非空推导 status=degraded、否则 completed（已记录的实现层口径）；RenderMarkdown 按 spec/01 第 5.2 节顺序确定性渲染总体分数/级别、维度表、每条 Finding 的标题/严重度/证据位置（文件:行号+侧别）/建议与降级原因，表格单元格竖线转义为 `\|`；金样由 `GOLDEN_UPDATE=1` 显式刷新，普通模式逐字节比对。
+- 验证：`go test ./internal/report -v` 通过（16 个测试：正例、JSON 往返、空输入、超限截断、8 组非法输入、确定性、金样、转义、nil 拒绝等）；`go test ./...` 通过（6 包 ok）；`go test -race ./...` 通过（6 包 ok）；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 限制：状态推导规则与 `findings-truncated` 原因码措辞为待用户追认的实现层口径；Runtime 元数据作为显式入参传入、TestGaps 恒为空列表（无生产者）；Markdown 尚未接入 Step Summary、Artifact 或评论发布链路。
+- 下一功能：离线 CLI（切片 13），随后进入 C5 Fake GitHub Client（切片 14）。
