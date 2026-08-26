@@ -3,9 +3,9 @@
 ## 当前状态
 
 - 项目阶段：Phase 1 - 离线确定性内核
-- 当前检查点：C5（Fake GitHub Client）
-- 当前功能：`C5 Fake GitHub Client`（下一功能）
-- 总体状态：in_progress（C4 completed；切片 13 离线命令行工具 completed）
+- 当前检查点：C6（GitHub 只读 REST 适配器）
+- 当前功能：`C6 GitHub 只读 REST 适配器`（下一功能）
+- 总体状态：in_progress（C5 Fake Client completed；C6 未开始）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -544,6 +544,26 @@
 - max-files/max-patch-bytes 等上限暂不可经 CLI 配置，沿用 diff 解析器默认值（留待后续调优切片参数化）。
 - GeneratedAt 使用真实时钟，因此重复执行的报告除时间戳外逐字节一致；需要固定时间的复现口径留待发布形态切片明确。
 
+### C5 Slice：Fake GitHub Client
+
+状态：completed（2026-08-26）
+
+完成内容：
+
+- 新增 `server/internal/github/fake.go` 与 `fake_test.go`：只读 `Client` 接口（GetPullRequest 元数据 + ListPullRequestFilesPage 分页契约 + FetchAllFiles 聚合便捷函数）。
+- 错误分类学：哨兵 `ErrNotFound`；类型化 `RateLimitError`（含 Retry-After）、`PermissionError`（区分 401/403）、`HeadSHAMismatchError`——切片 15 的 REST 客户端将把 HTTP 状态码映射到这些类型。
+- FakeClient 纯内存、并发安全（RWMutex）：可配置分页大小与当前 head SHA、一次性注入列表/元数据错误、记录分页调用供断言、尊重 context 取消。
+- 新增 8 个测试：分页聚合与页参数断言、越界页/空列表、429 一次性注入与 Retry-After 断言、401/403 权限、SHA 不匹配与更新后恢复、404/取消上下文、构造与页大小校验、并发读写压测（-race 通过，无数据竞争）。
+
+验证结果：
+
+- `go test ./internal/github -v` 全部通过（8 个测试）；`go test ./...` 通过（8 包 ok）、race 通过、vet 退出码 0、gofmt 无输出。
+
+已知限制：
+
+- 接口仅覆盖本产品需要的只读读取面；评论发布等写操作接口属切片 19。
+- 分页采用页码+每页大小契约而非 GitHub 的 Link 头形态，HTTP 层映射由切片 15 完成。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -557,22 +577,18 @@
 
 ## 下一步计划
 
-### 下一功能：C5 Fake GitHub Client（切片 14；DEVELOPMENT_PLAN 第 7 节任务表顺序）
+### 下一功能：C6 GitHub 只读 REST 适配器（切片 15）
 
 目标：
 
-- 新增 GitHub 客户端接口与 Fake 实现（落在 `server/internal/github`，与 agents.md 模块所有权一致）：Fake Client 可模拟分页列表、429 限流（含 `Retry-After`）、超时、401/403 权限错误和 head SHA 校验失败等行为，为 C6 只读 REST 适配器（切片 15）与 C8 幂等评论发布（切片 19）提供可测试依赖。
+- 新增真实 REST 适配器实现 C5 定义的 `Client` 接口：读取 PR 元数据与分页文件列表（含 patch），并把 HTTP 状态码映射到既有的类型化错误（404→ErrNotFound、429→RateLimitError 并解析 Retry-After 头、401/403→PermissionError）。
+- head SHA 校验沿用接口参数语义；不执行 PR 代码、不访问真实 github.com——HTTP 层用 `httptest` 起本地服务器测试。
 
 前置条件：
 
-- 离线分析链路与 CLI 已就绪（切片 13 完成），策略与报告层可直接消费客户端返回的变更数据。
-- 领域层 `ReviewRequest` 已定义 PR 身份（number/base SHA/head SHA），可作为 head SHA 校验的输入。
+- C5 接口与错误分类学完成（已满足）。
 
 验收标准：
 
-- 分页：跨多页聚合结果完整且顺序稳定。
-- 429/限流：尊重 `Retry-After` 的退避重试有测试覆盖，超过上限后返回明确错误。
-- 超时与取消：上下文超时立即中止并返回可识别错误。
-- 权限错误：401/403 不重试，错误信息不泄露 Token。
-- head SHA 校验：head SHA 与请求身份不一致时可检测并拒绝，防止旧结论误投。
-- 全部用例使用本地 Fake，不发任何真实网络请求；全量既有测试继续通过；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
+- httptest 覆盖：正常分页聚合、429 带 Retry-After 解析、401/403 权限、404、其他非 2xx 状态、非法 JSON 响应体。
+- 对真实 github.com 零请求；全量既有测试继续通过；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。

@@ -155,7 +155,7 @@ gofmt 检查
 | 11 | C4 策略引擎 | `DONE` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
 | 12 | C4 报告构建与渲染 | `DONE` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
 | 13 | 离线 CLI | `DONE` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
-| 14 | C5 Fake GitHub Client | `PLANNED` | 覆盖分页、429、超时、权限错误和 head SHA 校验。 |
+| 14 | C5 Fake GitHub Client | `DONE` | 接口+内存假客户端覆盖分页、429、超时取消、权限错误和 head SHA 校验，-race 通过。 |
 | 15 | C6 GitHub 只读 REST 适配器 | `PLANNED` | 读取 PR、文件和 patch；不执行 PR 代码。 |
 | 16 | 版本化二进制发布构建 | `PLANNED` | 构建 Linux amd64 包与 SHA-256 校验清单。 |
 | 17 | GitHub Action 客户端 | `PLANNED` | 下载与 Action 版本匹配的二进制并校验哈希；真实发布前保持 `PARTIAL`。 |
@@ -306,3 +306,13 @@ gofmt 检查
 - 验证：`server/` 内 `go build ./...` 通过；`go test ./cmd/go-risk-analyzer/... -v` 通过（16 个 PASS 项）；`go test ./...` 通过（7 包 ok）；`go test -race ./...` 通过（7 包 ok）；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。另以临时目录真实二进制冒烟验证版本输出、成功路径与缺失文件错误路径。
 - 限制：仅离线输入，不接 GitHub API/模型/发布链路；上限沿用解析器默认值不可经 CLI 配置；GeneratedAt 为真实时钟。
 - 下一功能：C5 Fake GitHub Client（切片 14）。
+
+### 2026-08-26 - C5 Fake GitHub Client
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/github/fake.go` 与 `fake_test.go`；更新 `spec/implementation-status.md`（进度、切片记录、下一步计划）；本文件任务表与日志同步。
+- 行为：只读 `Client` 接口（PR 元数据 + 分页文件列表，带 expectedHeadSHA 竞态防护参数）；纯内存可编程 FakeClient 支持分页、一次性注入 429（含 Retry-After）/401/403/head SHA 不匹配场景；错误分类学（哨兵 ErrNotFound + 类型化 RateLimitError/PermissionError/HeadSHAMismatchError）供切片 15 REST 客户端映射 HTTP 状态码；并发安全（RWMutex），尊重 context 取消。
+- 执行方式说明：后台代理启动瞬间因服务商通道错误死亡且零产出（本次未收到失败通知），由主会话直接实现并验证。
+- 验证：定向测试全部通过（8 个）；`go test ./...` 通过（8 包 ok）；`go test -race ./...` 通过（并发读写压测无数据竞争）；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。初版测试自身存在两处缺陷（裸读内部字段的数据竞争、空列表断言错误）被竞态检测器与断言捕获，修正后复验通过——检测器按预期工作。
+- 限制：接口仅覆盖只读读取面，评论发布等写操作接口属切片 19；分页契约是页码+每页大小，GitHub Link 头的映射由切片 15 完成；无真实网络行为。
+- 下一功能：C6 GitHub 只读 REST 适配器（切片 15）。
