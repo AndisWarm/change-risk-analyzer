@@ -4,8 +4,8 @@
 
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C3
-- 当前功能：`CR-TEST-001` risk-bearing change without test evidence（下一功能）
-- 总体状态：in_progress（`CR-SEC-003` completed；C3 确定性规则仍未完成）
+- 当前功能：「信号运行器与 fixture 接入」（下一功能）
+- 总体状态：in_progress（`CR-TEST-001` completed；C3 收尾仍未完成）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -418,12 +418,36 @@
 - 仅覆盖 Go 源文件，其他语言的授权配置不在范围。
 - signal 未进入策略引擎，不计算 Finding、风险分数或门禁。
 
+### C3 Slice：`CR-TEST-001` risk-bearing change without test evidence
+
+状态：completed（2026-08-26）
+
+完成内容：
+
+- 新增 `server/internal/signals/test_evidence.go`，实现 `CR-TEST-001` 测试证据缺失候选分析器。
+- 敏感路径定义：任一路径段包含 migration/auth/payment/billing/security/admin（大小写不敏感子串匹配，`author.go` 类名字也会命中，已文档化）。
+- 测试证据判定：同一 ChangeSet 存在 `_test.go` 文件或 `tests/`/`test`/`testdata` 目录变更且与敏感文件共享顶级目录即视为覆盖（粗粒度，宁可漏报不误报）。
+- 输出 `testability` 类别 signal（confidence 0.6，weight 15），每个未覆盖敏感文件一条 `side=file` Evidence，Fact 使用「未观察到……建议补充验证」的观察式措辞；按顶级目录分组稳定排序。
+- 纯删除的敏感文件（无 patch）同样纳入；测试类文件自身、二进制、穿越路径排除。
+- 新增 `server/internal/signals/test_evidence_test.go`（3 个测试）：未覆盖正例与分组排序、覆盖/非敏感/测试自身反例、删除纳入、二进制/穿越/取消上下文/非法 ChangeSet/幂等边界。
+
+验证结果：
+
+- `go test ./internal/signals -run TestEvidence` 通过（3 个测试）。
+- `server/` 内 `go test ./...` 通过（5 包 ok）、`go test -race ./...` 通过、`go vet ./...` 退出码 0、`gofmt -l .` 无输出。
+
+已知限制：
+
+- 关键词子串匹配可能把 author.go 等非敏感命名误标为敏感。
+- 顶级目录粗匹配可能把无关测试变更当作覆盖证据造成漏报。
+- signal 未进入规则运行器（切片 10），不计算分数或门禁。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
 - 当前没有接入真实模型。
 - 当前没有实现 PR 评论发布。
-- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001`、`CR-SC-001`、`CR-SEC-002` 和 `CR-SEC-003`，其余风险规则仍在设计/实现阶段。
+- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001`、`CR-SC-001`、`CR-SEC-002`、`CR-SEC-003` 和 `CR-TEST-001`，其余风险规则仍在设计/实现阶段。
 
 ## 阻塞事项
 
@@ -431,21 +455,22 @@
 
 ## 下一步计划
 
-### C3 下一功能：`CR-TEST-001` risk-bearing change without test evidence
+### C3 下一功能：信号运行器与 fixture 接入
 
 目标：
 
-- 在 `server/internal/signals` 增加「高风险变更缺少配套测试证据」的确定性候选线索：当风险相关文件（如迁移、鉴权等敏感目录）发生变更，而同一 ChangeSet 中没有对应测试文件变更时，输出谨慎措辞的候选。
-- 不断言「没有测试」，只描述观察事实；保持模型、策略评分和报告构建不变。
+- 在 `server/internal/signals` 新增统一运行器：输入 ChangeSet 与有序的分析器列表，输出聚合、去重、稳定排序后的全部 RiskSignal；不访问网络、不执行仓库代码。
+- 将当前已实现的 9 条规则接入运行器，并通过固定 fixture（参照 `spec/fixtures/` 既有格式）产出可复验的稳定输出。
+- 保持模型、策略评分和报告构建不变。
 
 前置条件：
 
-- C1 领域对象、C2 diff parser、现有 C3 规则完成。
-- 敏感目录与测试文件的对应关系语义明确且不需要扩展 RiskReport schema。
+- C1 领域对象、C2 diff parser、现有 C3 全部规则完成。
+- fixture 格式与 golden 断言方式明确且不需要扩展 RiskReport schema。
 
 验收标准：
 
-- 提供正例（修改敏感目录且无配套测试变更）、反例（存在配套测试变更、普通文档变更）、边界例和误报说明。
-- 事实表述谨慎，不断言测试缺失。
-- signal 通过领域校验，路径来自 C2 解析结果。
-- 同一 ChangeSet 重复分析产生稳定、去重后的 signal。
+- 运行器对相同输入产生完全一致的输出：重复 signal 去重、全局稳定排序规则明确且文档化。
+- 取消上下文与单个分析器错误有明确的传播语义。
+- fixture 覆盖每条已实现规则的代表场景，测试断言稳定。
+- 全量既有测试继续通过。

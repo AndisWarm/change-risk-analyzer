@@ -150,7 +150,7 @@ gofmt 检查
 | 6 | `CR-SC-001` 浮动依赖引用 | `DONE` | 已提供正例、反例、边界例、误报说明和稳定 Evidence。 |
 | 7 | `CR-SEC-002` Secret-like literal | `DONE` | 只报告新增的可复核线索，避免输出原始 Secret。 |
 | 8 | `CR-SEC-003` 授权边界变化 | `DONE` | 已提供正例、反例、边界例、误报说明和双侧行号 Evidence。 |
-| 9 | `CR-TEST-001` 风险变更测试证据 | `PLANNED` | 使用谨慎措辞，不断言“没有测试”。 |
+| 9 | `CR-TEST-001` 风险变更测试证据 | `DONE` | 已提供正例、反例、边界例、误报说明和观察式措辞断言。 |
 | 10 | 信号运行器与 fixture 接入 | `PLANNED` | 所有已实现规则可统一运行、去重、稳定排序并进入固定 fixture。 |
 | 11 | C4 策略引擎 | `PLANNED` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
 | 12 | C4 报告构建与渲染 | `PLANNED` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
@@ -259,3 +259,13 @@ gofmt 检查
 - 验证：定向 `-run AuthorizationBoundary` 通过（4 个）；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
 - 限制：词法规则不构建调用图，不判断被删代码是否有等价替代防护，重构改名可能产生双候选；仅覆盖 Go 源文件；signal 未进入策略引擎，不计算分数或门禁。
 - 下一功能：`CR-TEST-001` 风险变更测试证据。
+
+### 2026-08-26 - `CR-TEST-001` risk-bearing change without test evidence
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/signals/test_evidence.go` 与 `test_evidence_test.go`；更新 `spec/07-deterministic-analyzers.md`（新增 4.10 节）与 `spec/implementation-status.md`（进度、切片记录、已知限制、下一步计划）；本文件任务表与日志同步。
+- 行为：敏感路径（路径段含 migration/auth/payment/billing/security/admin 子串）变更时，若同一顶级目录下未观察到 `_test.go`/tests/test/testdata 类测试变更，输出 testability 类别 signal（confidence 0.6，weight 15），每个未覆盖敏感文件一条 side=file Evidence；Fact 使用「未观察到……建议补充验证」观察式措辞，绝不断言「没有测试」；纯删除的敏感文件同样纳入。
+- 执行方式说明：后台代理因服务商通道错误中断。其断线前已写入一版文档描述但未及汇报代码；主会话并行实现了同功能并落盘验证，发现重叠后删除了重复的 4.10 章节，文档以实际落盘并验证通过的最终代码为准。
+- 验证：定向 `-run TestEvidence` 通过（3 个）；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 限制：关键词子串匹配可能把 author.go 等非敏感命名误标为敏感；顶级目录粗匹配可能造成漏报；signal 未进入规则运行器。
+- 下一功能：信号运行器与 fixture 接入（切片 10）。
