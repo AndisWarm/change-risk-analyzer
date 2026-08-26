@@ -1,0 +1,177 @@
+[
+  {
+    "rule_id": "CR-SEC-001",
+    "category": "security",
+    "fact": "Workflow 新增了 GitHub Actions 写权限声明",
+    "evidence": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "start_line": 3,
+        "end_line": 3,
+        "side": "right",
+        "fact": "新增 Workflow 权限声明: contents: write"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 1,
+    "weight": 30
+  },
+  {
+    "rule_id": "CR-EXEC-001",
+    "category": "security",
+    "fact": "新增命令执行调用包含动态参数，需确认其是否受外部输入影响",
+    "evidence": [
+      {
+        "file": "cmd/tool/main.go",
+        "start_line": 3,
+        "end_line": 3,
+        "side": "right",
+        "fact": "exec.Command 调用包含动态参数"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.75,
+    "weight": 30
+  },
+  {
+    "rule_id": "CR-SEC-002",
+    "category": "security",
+    "fact": "新增了疑似密钥或凭证字面量",
+    "evidence": [
+      {
+        "file": "scripts/bootstrap.sh",
+        "start_line": 2,
+        "end_line": 2,
+        "side": "right",
+        "fact": "新增GitHub Token 形态令牌（原始值未写入报告）"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.85,
+    "weight": 30
+  },
+  {
+    "rule_id": "CR-SEC-003",
+    "category": "security",
+    "fact": "授权边界可能发生变化",
+    "evidence": [
+      {
+        "file": "server/router.go",
+        "start_line": 2,
+        "end_line": 2,
+        "side": "left",
+        "fact": "删除了疑似授权校验或中间件代码，需确认是否有替代防护"
+      },
+      {
+        "file": "server/router.go",
+        "start_line": 3,
+        "end_line": 3,
+        "side": "right",
+        "fact": "疑似显式跳过或放宽鉴权，需确认意图"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.7,
+    "weight": 25
+  },
+  {
+    "rule_id": "CR-DATA-001",
+    "category": "data",
+    "fact": "迁移新增破坏性数据操作: DROP TABLE",
+    "evidence": [
+      {
+        "file": "db/migrations/004_drop.sql",
+        "start_line": 2,
+        "end_line": 2,
+        "side": "right",
+        "fact": "新增迁移操作: DROP TABLE"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.85,
+    "weight": 35
+  },
+  {
+    "rule_id": "CR-API-001",
+    "category": "api",
+    "fact": "删除导出 API 声明: func FetchUser",
+    "evidence": [
+      {
+        "file": "pkg/api/user.go",
+        "start_line": 2,
+        "end_line": 2,
+        "side": "left",
+        "fact": "删除 func FetchUser"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.9,
+    "weight": 25
+  },
+  {
+    "rule_id": "CR-REL-001",
+    "category": "reliability",
+    "fact": "新增外部 HTTP 请求未见超时或取消边界，需确认故障恢复策略",
+    "evidence": [
+      {
+        "file": "pkg/api/user.go",
+        "start_line": 3,
+        "end_line": 3,
+        "side": "right",
+        "fact": "新增未见超时边界的 默认 HTTP 辅助方法调用"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.8,
+    "weight": 20
+  },
+  {
+    "rule_id": "CR-CON-001",
+    "category": "concurrency",
+    "fact": "新增 goroutine 未见生命周期或取消信号，需确认退出条件",
+    "evidence": [
+      {
+        "file": "pkg/api/user.go",
+        "start_line": 4,
+        "end_line": 4,
+        "side": "right",
+        "fact": "新增 go 语句未见 ctx、停止通道或 WaitGroup 生命周期信号"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.65,
+    "weight": 20
+  },
+  {
+    "rule_id": "CR-SC-001",
+    "category": "supply_chain",
+    "fact": "新增了未固定版本的 Action、镜像或 Go 依赖引用",
+    "evidence": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "start_line": 4,
+        "end_line": 4,
+        "side": "right",
+        "fact": "新增GitHub Action 引用: actions/checkout 使用可移动大版本标签 @v4"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.8,
+    "weight": 20
+  },
+  {
+    "rule_id": "CR-TEST-001",
+    "category": "testability",
+    "fact": "敏感路径变更未观察到配套测试变更",
+    "evidence": [
+      {
+        "file": "db/migrations/004_drop.sql",
+        "side": "file",
+        "fact": "未观察到 db/migrations/004_drop.sql 的配套测试变更，建议补充验证"
+      }
+    ],
+    "source": "deterministic",
+    "confidence": 0.6,
+    "weight": 15
+  }
+]
