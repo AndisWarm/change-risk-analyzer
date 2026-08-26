@@ -152,7 +152,7 @@ gofmt 检查
 | 8 | `CR-SEC-003` 授权边界变化 | `DONE` | 已提供正例、反例、边界例、误报说明和双侧行号 Evidence。 |
 | 9 | `CR-TEST-001` 风险变更测试证据 | `DONE` | 已提供正例、反例、边界例、误报说明和观察式措辞断言。 |
 | 10 | 信号运行器与 fixture 接入 | `DONE` | 运行器聚合十条规则输出，去重与全局稳定排序有测试与金样固化。 |
-| 11 | C4 策略引擎 | `PLANNED` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
+| 11 | C4 策略引擎 | `DONE` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
 | 12 | C4 报告构建与渲染 | `PLANNED` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
 | 13 | 离线 CLI | `PLANNED` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
 | 14 | C5 Fake GitHub Client | `PLANNED` | 覆盖分页、429、超时、权限错误和 head SHA 校验。 |
@@ -279,3 +279,12 @@ gofmt 检查
 - 验证：定向 `-run Runner` 全部通过（5 个测试）；金样含全部十条规则 ID；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
 - 限制：运行器不计算分数、门禁或降级记录（属 C4 及以后）；golden 快照需随协议演进显式刷新；`spec/fixtures/cases.json` 保持端到端评测定位未与本层耦合。
 - 下一功能：C4 策略引擎（切片 11）。
+
+### 2026-08-26 - C4 策略引擎
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/policy/policy.go` 与 `policy_test.go`；更新 `spec/implementation-status.md`（当前状态、C4 切片记录、下一步计划）；本文件任务表与日志同步。`spec/02-risk-model.md` 未修改。
+- 行为：纯函数 `Evaluate([]domain.RiskSignal)` 把运行器输出的信号集合转换为带证据校验的 Finding——ID 为确定性复合键 `<RuleID>:<首个证据文件>:<起始行>`（非法字符替换为 `_`）、EvidenceStatus=confirmed、Evidence 深拷贝继承、InlineEligible 取自右侧正数行证据、Impact/Recommendation 使用不断言漏洞的谨慎措辞；任何一条非法证据立即返回含规则 ID 与文件路径的错误，无证据或 weight 超出 1-40 的信号同样拒绝。分数严格套用 spec/02 第 5 节初始配置：raw=Σ(weight×evidence_factor×exposure_factor)，行级因子 1.0／文件级 0.7，exposure 缺省固定 1.0（规格未定义缺省值的中性口径），mitigation 抵扣无数值目录、结构性为 0，final=min(100, max(0, raw))；维度分数按同一公式作用于类别子集并封顶 [0,100]；单条 Finding severity=LevelFromScore(单信号贡献分)，不引入新常量。默认门禁恒不阻塞合并。输入规范化排序后求值，重复与乱序输入结果 DeepEqual 一致。
+- 验证：`go test ./internal/policy -v` 通过（6 个测试：七类正例、空输入、五组非法证据反例、24/25/49/50/74/75 阈值边界、重复与乱序稳定、门禁中性）；`go test ./...` 通过（6 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 限制：finding 级 severity 映射与维度分数公式在 spec/02 未明文定义，当前采用「单信号贡献分过同一 LevelFromScore 阈值」「总分公式作用于类别子集」的解释口径，已在代码注释与 implementation-status 中记录，等待用户确认后如需调整只影响本包；exposure_factor 与 mitigation_credit 的真实取值留待 Phase 4 调优；findings 上限与降级原因归切片 12 报告构建处理；显式多信号组合升级规则未实现。
+- 下一功能：C4 报告构建与渲染（切片 12）。

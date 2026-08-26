@@ -4,8 +4,8 @@
 
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C4（策略引擎）
-- 当前功能：`C4 策略引擎`（下一功能）
-- 总体状态：in_progress（C3 completed；C4 未开始）
+- 当前功能：`C4 报告构建与渲染`（下一功能）
+- 总体状态：in_progress（C3 completed；策略引擎 completed）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -463,6 +463,35 @@
 - 运行器只做聚合、去重与排序，不计算分数、门禁或降级记录（属 C4 及以后切片）。
 - golden 快照需随协议或规则演进显式人工刷新。
 
+### C4 Slice：策略引擎
+
+状态：completed（2026-08-26）
+
+完成内容：
+
+- 新增 `server/internal/policy/policy.go` 与 `policy_test.go`：纯函数 `Evaluate([]domain.RiskSignal)` 把运行器聚合输出转换为 Finding，计算各维度分数、总分与级别，并给出默认门禁建议（ShouldBlock 恒为 false）。
+- 证据校验红线：逐条 Evidence 先于整体校验执行，任一条失败立即返回包含规则 ID 与文件路径的错误；没有任何证据、weight 超出 spec/02 规定的 1-40 范围的信号同样被拒绝，绝不静默跳过。
+- Signal→Finding 转换：ID 为确定性复合键 `<RuleID>:<首个证据文件>:<起始行>`（路径中不属于领域 ID 字符集的字段替换为 `_`，超长截断）；Category 继承、EvidenceStatus=confirmed、Confidence 继承、RuleIDs 单元素、Evidence 深拷贝继承；InlineEligible=存在 side=right 正数行号证据；Title 取自 Fact 截断，Impact/Recommendation 使用不断言漏洞、只描述待确认事实与复核动作的谨慎措辞。
+- 分数口径（spec/02 第 5 节初始配置）：raw=Σ(signal_weight×evidence_factor×exposure_factor)，evidence_factor 行级 1.0／文件级 0.7／仅模型线索 0.3；exposure_factor 在缺少公共/内部上下文时固定为 1.0（规格未定义缺省值，此为已记录的中性口径）；mitigation_credit 无数值目录、结构性恒为 0；final=min(100, max(0, raw))。单条 Finding 的 severity = LevelFromScore(round(单信号贡献分))，未引入任何新常量，单个弱线索天然不高于 medium，符合 spec/07 第 5 节「单个弱线索不应直接制造 high」。
+- 维度分数按同一公式作用于该类别信号子集并封顶 [0,100]，级别同样由 LevelFromScore 得出；仅输出涉及维度（spec/04 第 3 节允许省略无信号维度），Findings 与 Dimensions 分别经 domain.SortFindings / domain.SortDimensions 固定排序。
+- 确定性保证：输入先按与运行器一致的全局键规范化排序再累加浮点贡献分，重复求值与乱序输入结果 reflect.DeepEqual 一致；空输入输出零分、low、空 Findings、空维度且不阻塞合并。
+- 新增 6 个测试：多类别正例（security/data/api/reliability/concurrency/supply_chain/testability 七类信号，断言 ID、维度分组与分数、severity、门禁）、空输入、非法证据五组反例（空文件路径、右侧零行号、无证据、超上限权重、零权重，均断言错误含规则 ID 与路径）、阈值边界 24/25/49/50/74/75 与 LevelFromScore 一致性、重复与乱序 DeepEqual 稳定、默认门禁恒 false 及 MitigationIDs 中性。
+
+验证结果：
+
+- `go test ./internal/policy -v` 通过（6 个测试）。
+- `go test ./...` 通过（6 包 ok）。
+- `go test -race ./...` 通过（6 包 ok）。
+- `go vet ./...` 退出码 0。
+- `gofmt -l .` 无输出（新增文件已格式化）。
+
+已知限制：
+
+- spec/02 未单独定义 finding 级 severity 映射与维度分数公式；当前实现以「单信号贡献分过同一 LevelFromScore 阈值」「总分公式作用于类别子集」作为已记录的解释口径。如需调整口径只需修改本包并同步测试。
+- exposure_factor 固定 1.0、mitigation_credit 恒为 0：真实暴露度判定与缓解抵扣数值目录留待 Phase 4 调优切片补充。
+- findings 数量上限（spec/03 第 6 节 20 条）与 degradation_reasons 属报告构建职责，本切片不做裁剪或降级记录。
+- 显式多信号组合升级规则（权限扩大+不可信执行路径等）未实现，属 Phase 4 调优范围。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
@@ -476,21 +505,22 @@
 
 ## 下一步计划
 
-### C4 下一功能：策略引擎
+### C4 下一功能：报告构建与渲染
 
 目标：
 
-- 在 `server/internal/policy` 新增策略引擎：把运行器输出的 RiskSignal 集合转换为 Finding（含证据校验），计算各维度分数、总分与级别，产出默认门禁建议（默认不阻塞合并）。
-- 分数与阈值遵循 `spec/02-risk-model.md` 初始配置；模型输出永不直接参与分数或门禁。
+- 在 `server/internal/report` 新增报告构建器与 Markdown 渲染：把 ReviewRequest、ChangeSet 与策略引擎结果组装为通过 `risk-report/v1` schema 校验的完整 `RiskReport`，并渲染稳定的 Markdown/golden 报告。
+- 报告在发布前冻结为不可变对象；渲染器不改变报告语义；findings 数量上限与显式降级原因在该层落地。
 
 前置条件：
 
-- C3 完成（已满足）：运行器可稳定输出全部确定性信号。
-- Finding 结构与证据校验已在领域层就绪。
+- 策略引擎可稳定输出 Findings、Dimensions、总分与级别（已满足）。
+- 领域层 RiskReport 结构、双重校验与内置 schema 副本就绪（C1 已完成）。
 
 验收标准：
 
-- Signal 到 Finding 的转换带证据校验，非法证据被拒绝并有明确错误。
-- 维度分数、总分与 LevelFromScore 阈值一致；同一输入结果稳定。
-- 单元测试覆盖正例、空输入、非法证据与阈值边界。
+- 构建的 JSON 通过领域校验与 `risk-report/v1` schema 校验。
+- Markdown 渲染确定性强，golden 快照固化并可显式刷新。
+- 同一输入重复构建结果一致；空输入能产出合法的 completed 报告形态。
+- findings 超过上限时输出显式降级原因而非静默丢弃。
 - 全量既有测试继续通过。
