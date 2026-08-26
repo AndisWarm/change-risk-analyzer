@@ -4,8 +4,8 @@
 
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C3
-- 当前功能：`CR-SEC-003` authorization boundary change（下一功能）
-- 总体状态：in_progress（`CR-SEC-002` completed；C3 确定性规则仍未完成）
+- 当前功能：`CR-TEST-001` risk-bearing change without test evidence（下一功能）
+- 总体状态：in_progress（`CR-SEC-003` completed；C3 确定性规则仍未完成）
 - 最后更新：2026-08-26
 
 ## 检查点列表
@@ -394,12 +394,36 @@
 - 仅匹配英文凭据关键词，不识别未列举的自定义令牌格式；不分析跨行赋值和多行字符串。
 - signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
 
+### C3 Slice：`CR-SEC-003` authorization boundary change
+
+状态：completed（2026-08-26）
+
+完成内容：
+
+- 新增 `server/internal/signals/authorization_boundary.go`，实现 `CR-SEC-003` 授权边界变化分析器。
+- 删除侧检测：授权关键词（authorize/authenticate/check_auth/require_auth/require_permission/verify_token/is_admin/has_role/enforce_policy 等，大小写不敏感）与 `.Use(...auth...)` 中间件注册形态的行被删除时输出 `side=left` Evidence。
+- 新增侧检测：skip_auth/disable_auth/allow_all/permit_all/no_auth/without_auth/anonymous_access/public_route 等显式放宽写法（含 `-`/`_` 变体、要求独立单词边界）输出 `side=right` Evidence；新增正常鉴权强化代码不报。
+- Go 注释与字符串字面量经 `goCodeLine` 脱敏后不报；测试文件、`vendor/`、二进制、无 patch 与穿越路径全部排除。
+- 输出 security 类别 signal（confidence 0.7，weight 25），按文件合并证据，行号+侧别稳定排序去重。
+- 新增 `server/internal/signals/authorization_boundary_test.go`（4 个测试）：删除+放宽双证据正例、新增鉴权强化反例、注释/字符串/测试文件/vendor/二进制/无 patch/穿越路径反例、多文件稳定排序幂等、取消上下文、非法 ChangeSet、畸形 patch 报错。
+
+验证结果：
+
+- `go test ./internal/signals -run AuthorizationBoundary` 通过（4 个测试）。
+- `server/` 内 `go test ./...` 通过（5 包 ok）、`go test -race ./...` 通过、`go vet ./...` 退出码 0、`gofmt -l .` 无输出。
+
+已知限制：
+
+- 词法规则不构建调用图，不判断被删代码是否有等价替代防护；重构改名场景可能同时产生删除与新增两类候选。
+- 仅覆盖 Go 源文件，其他语言的授权配置不在范围。
+- signal 未进入策略引擎，不计算 Finding、风险分数或门禁。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
 - 当前没有接入真实模型。
 - 当前没有实现 PR 评论发布。
-- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001`、`CR-SC-001` 和 `CR-SEC-002`，其余风险规则仍在设计/实现阶段。
+- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001`、`CR-SC-001`、`CR-SEC-002` 和 `CR-SEC-003`，其余风险规则仍在设计/实现阶段。
 
 ## 阻塞事项
 
@@ -407,22 +431,21 @@
 
 ## 下一步计划
 
-### C3 下一功能：`CR-SEC-003` authorization boundary change
+### C3 下一功能：`CR-TEST-001` risk-bearing change without test evidence
 
 目标：
 
-- 在 `server/internal/signals` 增加授权边界变化的确定性线索，例如授权中间件、权限校验函数、路由守卫相关代码的新增、删除或放宽形态。
-- 只产出可复核候选，不把词法匹配当作漏洞结论；输出稳定 rule ID 和 Evidence。
-- 保持模型、策略评分和报告构建不变。
+- 在 `server/internal/signals` 增加「高风险变更缺少配套测试证据」的确定性候选线索：当风险相关文件（如迁移、鉴权等敏感目录）发生变更，而同一 ChangeSet 中没有对应测试文件变更时，输出谨慎措辞的候选。
+- 不断言「没有测试」，只描述观察事实；保持模型、策略评分和报告构建不变。
 
 前置条件：
 
 - C1 领域对象、C2 diff parser、现有 C3 规则完成。
-- 授权相关关键词与文件范围（如 auth/middleware/permission 相关路径）语义明确且不需要扩展 RiskReport schema。
+- 敏感目录与测试文件的对应关系语义明确且不需要扩展 RiskReport schema。
 
 验收标准：
 
-- 提供授权边界变化线索的正例、反例（普通业务代码变更）、边界例和误报说明。
-- 事实表述为「需确认」的候选，不断言存在越权漏洞。
-- signal 通过领域校验，路径和行号来自 C2 解析结果。
+- 提供正例（修改敏感目录且无配套测试变更）、反例（存在配套测试变更、普通文档变更）、边界例和误报说明。
+- 事实表述谨慎，不断言测试缺失。
+- signal 通过领域校验，路径来自 C2 解析结果。
 - 同一 ChangeSet 重复分析产生稳定、去重后的 signal。

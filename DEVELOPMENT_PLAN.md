@@ -149,7 +149,7 @@ gofmt 检查
 | 5 | `CR-CON-001` goroutine 生命周期线索 | `DONE` | 已提供正例、反例、边界例、误报说明和稳定 Evidence。 |
 | 6 | `CR-SC-001` 浮动依赖引用 | `DONE` | 已提供正例、反例、边界例、误报说明和稳定 Evidence。 |
 | 7 | `CR-SEC-002` Secret-like literal | `DONE` | 只报告新增的可复核线索，避免输出原始 Secret。 |
-| 8 | `CR-SEC-003` 授权边界变化 | `PLANNED` | 只产出可复核候选，不把词法匹配当作漏洞结论。 |
+| 8 | `CR-SEC-003` 授权边界变化 | `DONE` | 已提供正例、反例、边界例、误报说明和双侧行号 Evidence。 |
 | 9 | `CR-TEST-001` 风险变更测试证据 | `PLANNED` | 使用谨慎措辞，不断言“没有测试”。 |
 | 10 | 信号运行器与 fixture 接入 | `PLANNED` | 所有已实现规则可统一运行、去重、稳定排序并进入固定 fixture。 |
 | 11 | C4 策略引擎 | `PLANNED` | Signal 转 Finding、证据校验、缓解项、维度分数和总分均由确定性策略产生。 |
@@ -249,3 +249,13 @@ gofmt 检查
 - 验证：`server/` 内定向测试 `-run SecretLiteral -v` 通过（5 个）；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
 - 限制：格式与赋值启发式不验证凭据有效性，刻意不引入熵计算；要求赋值值含数字或符号导致纯字母口令漏报，含空格口令只截取首段可能整体漏报；仅匹配英文凭据关键词，不分析跨行赋值；signal 未进入策略引擎，不计算分数或门禁。
 - 下一功能：`CR-SEC-003` 授权边界变化。
+
+### 2026-08-26 - `CR-SEC-003` authorization boundary change
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/signals/authorization_boundary.go` 与 `authorization_boundary_test.go`；更新 `spec/07-deterministic-analyzers.md`（新增 4.9 节）与 `spec/implementation-status.md`（进度、切片记录、已知限制、下一步计划）；本文件任务表与日志同步。
+- 行为：删除侧检测授权关键词（authorize/authenticate/check_auth/is_admin/has_role 等）与 `.Use(...auth...)` 中间件注册被删，输出 side=left Evidence；新增侧检测 skip_auth/disable_auth/allow_all/permit_all/no_auth 等显式放宽写法（side=right，要求独立单词边界）；新增正常鉴权强化代码不报；注释与字符串经 goCodeLine 脱敏不报。输出 security 类别 signal（confidence 0.7，weight 25），按文件合并、行号+侧别稳定排序去重。
+- 执行方式说明：后台代理两次因服务商通道错误中断且未产出任何改动，由主会话直接实现并验证。
+- 验证：定向 `-run AuthorizationBoundary` 通过（4 个）；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 限制：词法规则不构建调用图，不判断被删代码是否有等价替代防护，重构改名可能产生双候选；仅覆盖 Go 源文件；signal 未进入策略引擎，不计算分数或门禁。
+- 下一功能：`CR-TEST-001` 风险变更测试证据。

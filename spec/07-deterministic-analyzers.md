@@ -173,6 +173,18 @@ Rule {
 - 输出：`category=security`、`source=deterministic`、`confidence=0.85`、默认 `weight=30`；不直接产生 Finding、总分或门禁结果。confidence 高于 `CR-EXEC-001`（0.75）是因为令牌格式证据结构性强，低于 `CR-SEC-001`（1.0）是因为词法启发式无法验证凭据真实有效。
 - 误报边界：词法规则不验证密钥是否真实有效，也不识别未列举的自定义令牌格式；含空格的口令只截取首段，可能整体漏报；候选需要策略层与人工确认后再处理，发现真实泄露时应旋转凭据。
 
+### 4.9 已实现规则：`CR-SEC-003`
+
+`CR-SEC-003`（authorization boundary change）是面向 Go 源文件（排除 `_test.go` 与 `vendor/`）patch 的确定性安全候选规则，同时检查删除侧与新增侧行。
+
+- 命中：
+  - 删除侧（`side=left`）：被删除行包含授权校验或中间件关键词（authorize/authenticate/check_auth/require_auth/require_permission/verify_token/is_admin/has_role/enforce_policy 等，大小写不敏感），或形如 `.Use(...auth...)` 的中间件注册；事实措辞为「删除了疑似授权校验或中间件代码，需确认是否有替代防护」。
+  - 新增侧（`side=right`）：出现显式跳过或放宽鉴权的独立标识符——skip_auth/disable_auth/allow_all/permit_all/no_auth/without_auth/anonymous_access/public_route 等（允许 `-`/`_` 变体）；事实措辞为「疑似显式跳过或放宽鉴权，需确认意图」。
+- 不命中：新增的鉴权强化代码（新加中间件注册、新加权限判断）；注释与字符串字面量中的命中（复用 `goCodeLine` 脱敏处理）；测试文件、`vendor/`、二进制、无 patch 文件与路径穿越输入；非独立单词的子串（如 `SetAllowAll` 中的 allowall 不命中）。
+- 证据：删除侧定位到 `side=left` 正数行号，新增侧为 `side=right`；同一文件合并为一条 signal，按行号与侧别稳定排序去重。
+- 输出：`category=security`、`source=deterministic`、`confidence=0.7`、默认 `weight=25`；不直接产生 Finding、总分或门禁结果。
+- 误报边界：词法规则不构建调用图，无法判断被删代码是否有等价替代防护，也不识别自定义命名风格的守卫函数；重构改名场景可能同时产生删除与新增两类候选；仅覆盖 Go 语言文件；策略层需要结合上下文确认是否真的放宽了授权。
+
 ## 5. 规则组合
 
 单个弱线索不应直接制造 `high`：
