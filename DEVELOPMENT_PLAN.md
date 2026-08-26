@@ -13,7 +13,21 @@
 5. `agents.md`
 6. 本文件
 
-## 2. 产品边界
+## 2. 给项目所有者的使用说明
+
+本节用日常语言解释这份计划和项目结构，供不参与编码的项目所有者阅读。
+
+**以后怎么继续开发。** 每次想推进项目时，新开一个开发会话，只需说一句“按照 DEVELOPMENT_PLAN.md 做第 N 步”（N 是第 7 节任务表里的行号）。AI 会自行读取必要的文件，只做该步的工作，完成后自动把状态和实施日志回写到本文件及相关记录里。不需要每次重新解释项目背景。
+
+**各个文件夹是做什么的。**
+
+- `spec/` 是设计图纸：记录产品应该长什么样、要遵守哪些规矩。平时不用动它，只有产品设计本身变化时才会修改。
+- `server/` 是分析引擎：真正执行风险分析的程序代码都放在这里。
+- `client/` 是插件外壳：将来让这个工具能作为 GitHub Action 在仓库里安装运行的包装层。目前还没有实际内容，只有一份边界说明。
+
+**最终交付形态。** 交付形态已锁定为只读的 GitHub Action：不做网页后台，也不做常驻服务。安装到仓库后，它只在 GitHub 的 Pull Request 页面工作，分析结果以机器人评论和报告的形式出现在 Pull Request 里，供人工审阅参考，不会自动修改或合并代码。
+
+## 3. 产品边界
 
 产品是一个安装在 GitHub 仓库中的 Pull Request 风险分析工具，不是网页后台，也不是常驻服务。
 
@@ -21,7 +35,7 @@
 - `client/`：GitHub Action 安装包装层。它下载经过校验的已发布分析程序，不提供网页界面。
 - `spec/`：产品协议、设计决策、schema、fixture 和评测标准。
 
-目标目录将在“工程目录迁移”切片中建立，目标形态如下：
+目标目录已在“工程目录迁移”切片（切片 2，`DONE`）中建立目录骨架；下图为目标形态，其中部分子项（如 `client/action.yml` 与 CLI 入口）仍待后续切片创建，不代表当前已存在：
 
 ```text
 client/                         GitHub Action 包装层
@@ -40,7 +54,7 @@ DEVELOPMENT_PLAN.md             本文件
 
 `client/` 只会在分析二进制已经具备版本化发布能力后变成可安装功能；在此前必须标记为 `PARTIAL`，不能说 Action 已可用。
 
-## 3. 状态规则
+## 4. 状态规则
 
 状态只描述已核实的实际结果。
 
@@ -52,34 +66,56 @@ DEVELOPMENT_PLAN.md             本文件
 | `DONE` | 代码存在、该功能验收测试通过、文档与实施日志已回写。 |
 | `BLOCKED` | 已连续三轮被同一外部条件阻塞，无法继续。 |
 
+状态变更的前置条件：
+
+- 只有相应代码已写入工作区，且至少通过一次构建或测试之后，状态才可以从 `PLANNED` 改为 `IN_PROGRESS` 或 `DONE`。
+- 只完成一部分的功能必须标 `PARTIAL`，不得标 `DONE`。
+
 下列情况不能单独证明功能完成：
 
-- 方案已经设计。
-- 函数已经存在。
-- 指标已经展示但没有进入实际调度或策略。
-- 已采集流量但没有使用这些数据。
+- 方案已经设计（设计完成不等于已实现）。
+- 函数已经存在（单个函数存在不等于整条链路已完成）。
+- 指标已经展示但没有进入实际调度或策略（展示了指标不等于被实际使用）。
+- 已采集流量或数据但没有使用这些数据（采集了数据不等于相应能力已实现）。
 - 页面或文档写了某项能力。
 
 除非已经完成对应的压测、并发测试和故障切换测试，任何文档、日志和汇报都不得声称“高并发稳定”。
 
-## 4. 当前已核实状态
+「当前已核实状态」章节只允许写检查过工作区代码或实际执行过命令后得到的结论，禁止写推测性表述。
 
-以下结论仅来自已检查的工作区文件和已执行的命令。
+每次对工作区的实际改动都必须在第 9 节实施日志追加一条记录。
+
+## 5. 当前已核实状态
+
+核实日期：2026-08-25。以下结论仅来自当日检查过的工作区文件和实际执行过的命令。
+
+阶段与进度：
 
 - 当前阶段为 Phase 1（离线确定性内核），检查点为 C3（确定性风险规则）。
-- `server/` 已成为唯一 Go module，包含既有的 `internal/` 包；根目录 `go.work` 已引用该模块。
-- `client/` 已建立，但目前只有边界说明；尚不存在 `action.yml`、已发布二进制或 CLI 入口。
-- `server/internal/event` 已能把完整 Pull Request 事件 JSON 转为合法 `ReviewRequest`，不访问网络或文件系统。
-- `CR-REL-001` 已能识别有限范围内新增的 Go HTTP 请求缺少可见超时或取消边界的线索；命名 client 配置仍不推断。
-- `CR-CON-001` 已能识别新增 goroutine 缺少可见生命周期线索的候选；它不证明 goroutine 泄漏。
-- 已检查到领域对象、报告 schema 校验、unified diff 解析，以及 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001` 的规则代码与测试。
-- 已执行 `go test ./...` 和 `go vet ./...`，均通过；本次检查的工作区中没有 `git diff --check` 错误。
-- 工作区已有未提交的规则和文档改动。后续切片必须保留这些改动，不能回退或覆盖。
-- 尚未核实真实 GitHub API、真实模型、PR 评论、Artifact、Step Summary、二进制发布或 GitHub Action 的运行行为。
+- 下一个待实现功能是切片 6 `CR-SC-001`（浮动依赖引用），状态仍为 `PLANNED`，尚未开始：`server/internal/signals/` 下不存在任何浮动依赖或供应链引用规则的实现文件；全仓检索命中的只有领域层与报告 schema 中既有的 `supply_chain` 风险类别枚举，属于协议定义，不是规则实现。
 
-创建本文件只完成“开发计划文档”这一文档交付，不改变任何 C1-C9 软件功能的状态。
+目录结构现状：
 
-## 5. 每轮开发协议
+- 根目录包含 `.git`、`.gitignore`、`agents.md`、`DEVELOPMENT_PLAN.md`、`go.work`、`LICENSE`、`README.md` 以及 `client/`、`server/`、`spec/` 三个目录。
+- `server/` 是唯一 Go module（模块路径 `change-risk-analyzer`，Go 1.26）；根目录 `go.work` 内容为 `use ./server`。
+- `client/` 目前只有 `README.md`，不存在 `action.yml`，也没有任何可安装的 Action。
+- `server/internal/` 现有包：`change`、`domain`、`event`、`report`（含内置 schema 副本）、`signals`（含 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001` 六条规则及其测试）。
+
+验证命令与结果（均在 2026-08-25 实际执行）：
+
+- 在 `server/` 内执行 `go test ./...`：通过，5 个包全部 ok（change、domain、event、report、signals）。
+- 在 `server/` 内执行 `go test -race ./...`：通过，5 个包全部 ok。
+- 在 `server/` 内执行 `go vet ./...`：退出码 0。
+- 在 `server/` 内执行 `gofmt -l .`：无输出（所有 Go 文件格式正确）。
+- 在仓库根目录执行 `go test ./server/...`：通过，5 个包 ok（缓存命中）。
+- 在仓库根目录执行 `git status --short`：无输出，工作区干净。2026-08-15 记录的“未提交的规则和文档改动”此后已被提交，该旧表述已作废。
+- 在仓库根目录执行 `git log --oneline -5`：正常显示最近 5 条提交；当前分支为 `main`，最新提交为 `0c62598` “feat: add offline analysis foundations”（2026-08-15）。
+
+尚未核实的部分（与此前一致）：真实 GitHub API、真实模型调用、PR 评论发布、Artifact、Step Summary、二进制版本化发布和 GitHub Action 的实际运行行为均未验证。
+
+本轮只完成文档核实与刷新这一文档交付，不改变任何 C1-C9 软件功能的状态。
+
+## 6. 每轮开发协议
 
 每个实际开发会话必须遵守以下顺序：
 
@@ -102,7 +138,7 @@ gofmt 检查
 
 报告输出变化还必须运行 schema 和 golden 测试；GitHub 与模型功能必须分别使用 Fake GitHub Server 和 Fake Provider，不能把真实 Token、真实 GitHub 写操作或真实模型调用放入单元测试。
 
-## 6. 实施顺序
+## 7. 实施顺序
 
 | 顺序 | 唯一功能切片 | 状态 | 完成条件 |
 | --- | --- | --- | --- |
@@ -111,8 +147,8 @@ gofmt 检查
 | 3 | 离线事件解析 | `DONE` | 事件 JSON 可生成 `ReviewRequest`，并覆盖空值、非法 SHA、Fork 和未知事件。 |
 | 4 | `CR-REL-001` 外部请求超时线索 | `DONE` | 已提供正例、反例、边界例、误报说明和稳定 Evidence。 |
 | 5 | `CR-CON-001` goroutine 生命周期线索 | `DONE` | 已提供正例、反例、边界例、误报说明和稳定 Evidence。 |
-| 6 | `CR-SC-001` 浮动依赖引用 | `PLANNED` | 覆盖 Action、依赖或镜像的浮动版本线索。 |
-| 7 | `CR-SEC-002` Secret-like literal | `PLANNED` | 只报告新增的可复核线索，避免输出原始 Secret。 |
+| 6 | `CR-SC-001` 浮动依赖引用 | `DONE` | 已提供正例、反例、边界例、误报说明和稳定 Evidence。 |
+| 7 | `CR-SEC-002` Secret-like literal | `DONE` | 只报告新增的可复核线索，避免输出原始 Secret。 |
 | 8 | `CR-SEC-003` 授权边界变化 | `PLANNED` | 只产出可复核候选，不把词法匹配当作漏洞结论。 |
 | 9 | `CR-TEST-001` 风险变更测试证据 | `PLANNED` | 使用谨慎措辞，不断言“没有测试”。 |
 | 10 | 信号运行器与 fixture 接入 | `PLANNED` | 所有已实现规则可统一运行、去重、稳定排序并进入固定 fixture。 |
@@ -131,14 +167,14 @@ gofmt 检查
 | 23 | Phase 4 调优与可选门禁 | `PLANNED` | 达到固定评测阈值后才可启用 `fail-on`；默认仍不阻塞合并。 |
 | 24 | Fork 双工作流、GitHub App、数据库或常驻服务 | `PLANNED` | 先有独立 ADR、威胁模型与集成测试；没有这些前不得开始。 |
 
-## 7. 稳定接口
+## 8. 稳定接口
 
 - CLI：`go-risk-analyzer analyze`，同时支持离线输入与 GitHub Action 运行。
 - 报告：保持 `risk-report/v1`；字段变更必须同步 schema、fixture、测试和 ADR。
 - Action 输入：`config`、模型配置、文件/patch 上限、评论与 Artifact 开关、`fail-on`、`debug`。
 - Action 发布：仅下载精确版本的二进制并校验 SHA-256，不使用浮动的“latest”二进制。
 
-## 8. 实施日志
+## 9. 实施日志
 
 ### 2026-08-15 - 创建开发总控文档
 
@@ -182,3 +218,34 @@ gofmt 检查
 - 验证：定向规则测试、根目录 `go test ./server/...`、`server/` 内 `go test -race ./...`、`go vet` 与 `gofmt` 检查通过。
 - 限制：规则不证明泄漏，不跟踪跨函数或跨文件的取消、channel 或 WaitGroup 配对。
 - 下一功能：`CR-SC-001` 浮动依赖引用。
+
+### 2026-08-25 - 文档核实与刷新
+
+- 状态：`DONE`（文档交付；不改变任何软件功能或 C1-C9 检查点状态）。
+- 修改：仅更新本文件 `DEVELOPMENT_PLAN.md`。新增第 2 节「给项目所有者的使用说明」，其后各节顺延重新编号（原 2-8 节变为 3-9 节）；按当日核实结果重写第 5 节「当前已核实状态」；在第 4 节「状态规则」补充状态变更前置条件、PARTIAL 约束、「当前已核实状态」只写已核实结论、以及实施日志回写要求；将第 3 节中“目标目录将在工程目录迁移切片中建立”更新为已建立的事实表述。未修改 `spec/` 下任何文件，未修改任何代码。
+- 核实命令与结果（2026-08-25 实际执行）：`server/` 内 `go test ./...` 通过（5 包 ok）、`go test -race ./...` 通过（5 包 ok）、`go vet ./...` 退出码 0、`gofmt -l .` 无输出；根目录 `go test ./server/...` 通过、`git status --short` 无输出（工作区干净）、`git log --oneline -5` 正常显示（分支 `main`，最新提交 `0c62598`，2026-08-15）。
+- 目录核实：`client/` 仅含 `README.md`，无 `action.yml`；不存在任何 CR-SC-001 / 浮动依赖引用实现代码（检索命中的仅为领域层与 schema 中既有的 `supply_chain` 风险类别枚举）。切片 6 `CR-SC-001` 保持 `PLANNED`。
+- 文档一致性核对：本文件第 7 节任务表（切片 1-5 `DONE`、6-24 `PLANNED`）与 `spec/implementation-status.md` 的检查点进度（C0-C2 completed、C3 in_progress、C4-C9 pending）一致，两文档的下一功能均为切片 6 `CR-SC-001`，无出入。另观察到 `spec/implementation-status.md` 内部 A1 段落仍保留“工程目录迁移仍是下一项 PLANNED 工作”的过时句子，与其自身 A2 段落（迁移已完成）矛盾；因约束本轮不改 `spec/` 文件，仅在此次记录该出入。
+- 已修正旧结论：2026-08-15 记录的“工作区已有未提交的规则和文档改动”已过时——当前工作区干净，历史改动已在提交 `0c62598` 中入库。
+- 未做：未新增或修改任何风险规则、测试或配置；未接入真实 GitHub API、模型或发布流程。
+- 下一功能：`CR-SC-001` 浮动依赖引用。
+
+### 2026-08-25 - `CR-SC-001` 浮动依赖引用
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/signals/floating_dependency.go` 与 `floating_dependency_test.go`；更新 `spec/07-deterministic-analyzers.md`（新增 4.7 节）与 `spec/implementation-status.md`（进度、A1 过时句子更正、切片记录、下一步计划）；本文件任务表与日志同步。
+- 行为：检测新增行中的浮动版本引用——Action 的分支/大版本标签（`@main`/`@v1` 等）、镜像 `latest` 或无标签（Dockerfile 裸单词名跳过）、`go get/install` 的 `@latest|@master|@main`；完整 SHA、digest 摘要和三段式精确版本视为固定。输出 `supply_chain` 类别 signal（confidence 0.8，weight 20），按文件合并右侧行级 Evidence。
+- 执行方式说明：后台开发代理因模型服务商用量限额连续失败（含两次断点恢复与一次全新代理），改由主会话直接实现；实现前已完成必读规范阅读，验证标准未降低。
+- 验证：`server/` 内定向测试 `-run FloatingReference -v` 通过（6 个）；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 限制：词法规则不识别 `releases/*` 等未列举浮动形态；YAML 无标签裸单词镜像可能对自建别名误报；signal 未进入策略引擎，不计算分数或门禁。
+- 下一功能：`CR-SEC-002` Secret-like literal。
+
+### 2026-08-26 - `CR-SEC-002` Secret-like literal
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/signals/secret_literal.go` 与 `secret_literal_test.go`；更新 `spec/07-deterministic-analyzers.md`（新增 4.8 节）与 `spec/implementation-status.md`（进度、切片记录、已知限制、下一步计划）；本文件任务表与日志同步。
+- 行为：检测所有非二进制文件新增行中的疑似密钥——GitHub/AWS/Slack/Google 已知令牌格式、私钥块起始标记、以及向凭据命名变量的非空字面量赋值（支持 `=`、`:=`、`:` 赋值符）；输出 security 类别 signal（confidence 0.85，weight 30），按文件合并证据并稳定排序。Evidence 绝不携带完整原始密钥值：不设置 Excerpt，Fact 只含类型、键名与行号并注明原始值未写入报告，有专项测试遍历全部字符串字段断言不含原文。豁免各家官方示例假值、占位符、env 引用、注释行以及过短/低字符多样性/纯字母或纯数字的字面量。
+- 执行方式说明：后台开发代理两次因服务商通道错误中断，其恢复运行在断线前已完成一版实现与文档但未汇报；主会话在不知情下并行实现了同功能并覆盖了其代码文件，发现重叠后已逐项核对，三处文档均以实际落盘并验证通过的最终代码为准修正。
+- 验证：`server/` 内定向测试 `-run SecretLiteral -v` 通过（5 个）；`go test ./...` 通过（5 包 ok）；`go test -race ./...` 通过；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。
+- 限制：格式与赋值启发式不验证凭据有效性，刻意不引入熵计算；要求赋值值含数字或符号导致纯字母口令漏报，含空格口令只截取首段可能整体漏报；仅匹配英文凭据关键词，不分析跨行赋值；signal 未进入策略引擎，不计算分数或门禁。
+- 下一功能：`CR-SEC-003` 授权边界变化。

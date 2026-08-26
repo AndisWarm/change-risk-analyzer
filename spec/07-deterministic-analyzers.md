@@ -144,6 +144,35 @@ Rule {
 - 不命中：调用参数或匿名闭包中可见 `ctx`、`done`、`stop`、`quit`、`cancel`、`wg`/`waitGroup`，以及注释、字符串、删除侧、测试文件、二进制或无 patch 文件。
 - 误报边界：这是有限范围词法线索，不证明 goroutine 必然泄漏，也不分析被调用函数、跨函数取消传播、channel 生产/消费、真实 WaitGroup 配对或超过短闭包范围的逻辑；策略层需要结合上下文确认影响。
 
+### 4.7 已实现规则：`CR-SC-001`
+
+`CR-SC-001`（floating action/dependency reference）是面向新增 patch 行的确定性供应链线索规则，输入为 C2 规范化后的 Workflow YAML、其他 `.yml`/`.yaml` 配置、`Dockerfile*` 以及 shell 脚本与 Makefile 类文件。
+
+- 命中：
+  - GitHub Action 引用使用分支/浮动标签（`@main`、`@master`、`@latest` 等）或可移动大版本标签（`@v1`、`@v1.2`）；
+  - 容器镜像使用 `latest` 标签或未指定标签（隐式 latest）；Dockerfile 中无标签的裸单词名可能是构建阶段引用，跳过以避免误报；
+  - `go get` / `go install` 命令引用 `@latest` 或 `@master`/`@main` 分支版本。
+- 固定判定：完整 40/64 位 commit SHA、`@sha256:`/`@sha512:` digest 摘要、三段式精确版本（如 `v1.2.3`）、显式非 latest 标签。
+- 证据：定位到新增行的 `side=right` 和正数行号；同一文件合并为一条 signal。
+- 输出：`category=supply_chain`、`source=deterministic`、`confidence=0.8`、默认 `weight=20`；事实表述为需要确认是否应钉死到精确版本。
+- 不命中：上述固定引用形态、本地路径 action（无 `@ref`）、纯注释行与行内注释、删除侧旧内容、二进制/无 patch 文件和无关路径（含路径穿越输入）。
+- 误报边界：这是词法线索，不识别 `releases/*` 等未列举的浮动形态，不判断依赖的真实可达性或是否已被替换，也不分析跨文件的引用复现；YAML 中无标签裸单词镜像按真实镜像处理，若为部署工具的自建别名会产生候选误报；策略层需要结合上下文确认严重程度。
+
+### 4.8 已实现规则：`CR-SEC-002`
+
+`CR-SEC-002`（secret-like literal）是面向所有带 patch 的非二进制文件新增行的确定性疑似密钥线索规则，扫描前执行路径规范化并拒绝路径穿越输入。
+
+- 命中：
+  - 已知令牌格式：GitHub Token（`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` 前缀）、AWS Access Key ID（`AKIA`/`ASIA` 开头）、Slack Token（`xoxb-` 等）、Google API Key（`AIza` 开头）；
+  - 私钥块起始标记 `-----BEGIN ... PRIVATE KEY-----`；
+  - 密钥类键名（`password`、`passwd`、`secret`、`token`、`api_key`、`access_key`、`access_token`、`private_key`、`auth_token`，允许作为更长变量名尾部）后紧跟非空字面量赋值。
+- 脱敏不变量：Evidence 不设置 Excerpt；Fact 只包含类型、键名与行号描述，任何字段都不得出现完整原始密钥值（有专门测试断言）。
+- 豁免：各家公开文档示例假值（如 `AKIAIOSFODNN7EXAMPLE`）、占位符形态（`<...>`、`${}`、`your_*`、`changeme`、`xxx*`、`placeholder` 等）、环境引用（`os.Getenv`、`process.env`）、短于 6 字符的值、字符种类不超过 2 的值、纯数字与纯字母值、整行与行内注释、删除侧旧内容、二进制和无 patch 文件。
+- 取舍说明：不引入熵计算以控制噪声；要求赋值字面量至少含一个数字或符号——纯字母口令会漏报，这是刻意的低误报取舍。
+- 证据：定位到新增行的 `side=right` 和正数行号；同一文件合并为一条 signal，行级按行号去重排序。
+- 输出：`category=security`、`source=deterministic`、`confidence=0.85`、默认 `weight=30`；不直接产生 Finding、总分或门禁结果。confidence 高于 `CR-EXEC-001`（0.75）是因为令牌格式证据结构性强，低于 `CR-SEC-001`（1.0）是因为词法启发式无法验证凭据真实有效。
+- 误报边界：词法规则不验证密钥是否真实有效，也不识别未列举的自定义令牌格式；含空格的口令只截取首段，可能整体漏报；候选需要策略层与人工确认后再处理，发现真实泄露时应旋转凭据。
+
 ## 5. 规则组合
 
 单个弱线索不应直接制造 `high`：

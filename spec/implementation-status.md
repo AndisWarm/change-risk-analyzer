@@ -4,9 +4,9 @@
 
 - 项目阶段：Phase 1 - 离线确定性内核
 - 当前检查点：C3
-- 当前功能：`CR-SC-001` floating action/dependency reference（下一功能）
-- 总体状态：in_progress（`CR-CON-001` completed；C3 确定性规则仍未完成）
-- 最后更新：2026-08-15
+- 当前功能：`CR-SEC-003` authorization boundary change（下一功能）
+- 总体状态：in_progress（`CR-SEC-002` completed；C3 确定性规则仍未完成）
+- 最后更新：2026-08-26
 
 ## 检查点列表
 
@@ -72,7 +72,7 @@
 
 - 2026-08-15 新增根目录 `DEVELOPMENT_PLAN.md`，用于约束后续会话的切片范围、状态证据、验收命令和实施日志。
 - 该记录仅说明计划文档已写入；不改变 C1-C9 的实现状态，也不代表目录迁移、GitHub Action 或任何未实现能力已经完成。
-- 本次未修改已有风险规则实现；工程目录迁移仍是下一项 `PLANNED` 工作。
+- 本次未修改已有风险规则实现。（更正：本段原写有“工程目录迁移仍是下一项 PLANNED 工作”，与下方 A2 段落矛盾——迁移已于 2026-08-15 完成，此为历史遗留句子的修正记录。）
 
 ### A2：工程目录迁移（非检查点辅助交付）
 
@@ -342,12 +342,64 @@
 - 规则不证明 goroutine 泄漏，不分析跨函数取消、channel 生产/消费、真实 WaitGroup 配对或长闭包。
 - signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
 
+### C3 Slice：`CR-SC-001` floating dependency reference
+
+状态：completed（2026-08-25）
+
+完成内容：
+
+- 新增 `server/internal/signals/floating_dependency.go`，实现 `CR-SC-001` 浮动依赖引用分析器。
+- 覆盖三类新增行形态：Workflow YAML 的 `uses:` 分支/大版本浮动标签；`.yml`/`.yaml` 的 `image:` 键与 `Dockerfile*` 的 `FROM` 行中 `latest` 或无标签镜像（Dockerfile 裸单词名跳过以避开构建阶段误报）；shell/Makefile/Dockerfile `RUN`/workflow `run:` 中 `go get|install` 的 `@latest`、`@master`、`@main` 引用。
+- 固定判定：完整 40/64 位 commit SHA、`@sha256:`/`@sha512:` digest、三段式精确版本、显式非 latest 标签。
+- 输出 `supply_chain` 类别 signal（confidence 0.8，weight 20），按文件合并证据，行号来自 C2 解析的右侧新增行。
+- 新增 `server/internal/signals/floating_dependency_test.go`，覆盖正例、固定引用反例、注释/删除侧/二进制/无 patch/无关路径/穿越路径、compose 与脚本路径、稳定排序、重复分析幂等、取消上下文、非法 ChangeSet 和畸形 patch。
+
+验证结果：
+
+- `go test ./internal/signals -run FloatingReference -v` 通过（6 个测试）。
+- `server/` 内 `go test ./...` 通过（5 包 ok）、`go test -race ./...` 通过、`go vet ./...` 退出码 0、`gofmt -l .` 无输出。
+
+已知限制：
+
+- 词法规则不识别 `releases/*` 等未列举的浮动形态，不判断依赖真实可达性或是否被替换。
+- YAML 中无标签裸单词镜像按真实镜像处理，若为部署工具自建别名会产生候选误报。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
+### C3 Slice：`CR-SEC-002` secret-like literal
+
+状态：completed（2026-08-26）
+
+完成内容：
+
+- 新增 `server/internal/signals/secret_literal.go`，实现 `CR-SEC-002` 疑似密钥字面量分析器。
+- 覆盖三类新增行形态：已知令牌格式（GitHub Token、AWS Access Key ID、Slack Token、Google API Key）；私钥块起始标记（`-----BEGIN ... PRIVATE KEY-----` 含各变体）；向凭据命名变量（password/passwd/secret/token/api_key/access_key/access_token/private_key/auth_token，允许作为更长变量名尾部）赋予长度至少 6 的非空字面量的赋值形态，支持 `=`、`:=` 与 YAML/JSON 的 `:` 赋值符。
+- 安全不变量：Evidence 刻意不设置 Excerpt，Fact 仅含线索类型、键名（赋值形态）和行号描述，并注明原始值未写入报告；有专项测试构造完整假 token 输入并遍历全部 Evidence 字符串字段断言不含原文。
+- 豁免（误报控制）：官方文档标准示例假值（如 `AKIAIOSFODNN7EXAMPLE`）、尖括号占位符、`${VAR}`/模板引用、env 引用（`os.Getenv`、`process.env`）、changeme/重复字符类占位、短于 6 字符的值、字符种类不超过 2 的值、纯数字与纯字母值、整行与行内注释（`#`/`//`）、删除侧旧内容、二进制/无 patch 文件、路径穿越输入。所有带 patch 的普通文件均在扫描范围内（含测试文件），依赖上述过滤器压低噪声。
+- 扫描范围覆盖所有带 patch 的非二进制文件（密钥可出现在任何配置/代码文件），复用路径安全检查拒绝穿越路径；不引入熵计算。
+- 输出 security 类别 signal（confidence 0.85，weight 30），按文件合并证据，行级去重稳定排序，同一输入重复分析结果完全一致。
+- 新增 `server/internal/signals/secret_literal_test.go`（5 个测试）：四类格式+私钥正例与打码断言、官方示例假值反例、占位符/env/注释反例、作用域边界（删除侧/Go 注释/二进制/无 patch/穿越路径）、多文件稳定排序与幂等 DeepEqual、取消上下文、非法 ChangeSet、畸形 patch 报错。
+
+验证结果：
+
+- `go test ./internal/signals -run SecretLiteral -v` 通过（5 个测试）。
+- `go test ./...` 通过（5 包 ok）。
+- `go test -race ./...` 通过（5 包 ok）。
+- `go vet ./...` 退出码 0。
+- `gofmt -l .` 无输出。
+
+已知限制：
+
+- 格式与赋值启发式不引入熵计算，无法验证凭据是否真实有效或已被轮换。
+- 要求赋值字面量至少含一个数字或符号：纯字母口令会漏报；含空格口令只截取首段，可能整体漏报。
+- 仅匹配英文凭据关键词，不识别未列举的自定义令牌格式；不分析跨行赋值和多行字符串。
+- signal 尚未进入策略引擎，不计算 Finding、风险分数或门禁。
+
 ## 已知限制
 
 - 当前没有接入真实 GitHub API。
 - 当前没有接入真实模型。
 - 当前没有实现 PR 评论发布。
-- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001` 和 `CR-CON-001`，其余风险规则仍在设计/实现阶段。
+- 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001`、`CR-SC-001` 和 `CR-SEC-002`，其余风险规则仍在设计/实现阶段。
 
 ## 阻塞事项
 
@@ -355,21 +407,22 @@
 
 ## 下一步计划
 
-### C3 下一功能：`CR-SC-001` floating action/dependency reference
+### C3 下一功能：`CR-SEC-003` authorization boundary change
 
 目标：
 
-- 在 `server/internal/signals` 增加新增 GitHub Action、Go 依赖或镜像浮动版本引用的确定性供应链线索。
-- 只处理 C2 提供的新增 patch 行，输出稳定 rule ID 和 Evidence。
+- 在 `server/internal/signals` 增加授权边界变化的确定性线索，例如授权中间件、权限校验函数、路由守卫相关代码的新增、删除或放宽形态。
+- 只产出可复核候选，不把词法匹配当作漏洞结论；输出稳定 rule ID 和 Evidence。
 - 保持模型、策略评分和报告构建不变。
 
 前置条件：
 
 - C1 领域对象、C2 diff parser、现有 C3 规则完成。
-- 供应链引用 Evidence 语义明确且不需要扩展 RiskReport schema。
+- 授权相关关键词与文件范围（如 auth/middleware/permission 相关路径）语义明确且不需要扩展 RiskReport schema。
 
 验收标准：
 
-- 提供浮动引用线索的正例、反例、边界例和误报说明。
+- 提供授权边界变化线索的正例、反例（普通业务代码变更）、边界例和误报说明。
+- 事实表述为「需确认」的候选，不断言存在越权漏洞。
 - signal 通过领域校验，路径和行号来自 C2 解析结果。
 - 同一 ChangeSet 重复分析产生稳定、去重后的 signal。
