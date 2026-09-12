@@ -156,7 +156,7 @@ gofmt 检查
 | 12 | C4 报告构建与渲染 | `DONE` | 生成通过 `risk-report/v1` schema 的 JSON 和稳定 Markdown/golden 报告。 |
 | 13 | 离线 CLI | `DONE` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
 | 14 | C5 Fake GitHub Client | `DONE` | 接口+内存假客户端覆盖分页、429、超时取消、权限错误和 head SHA 校验，-race 通过。 |
-| 15 | C6 GitHub 只读 REST 适配器 | `PLANNED` | 读取 PR、文件和 patch；不执行 PR 代码。 |
+| 15 | C6 GitHub 只读 REST 适配器 | `DONE` | RESTClient 实现只读 Client 接口：PR 元数据、Link 头分页文件列表、状态码错误映射与 spec/05 §8 重试；httptest 全覆盖，不访问真实 github.com。 |
 | 16 | 版本化二进制发布构建 | `PLANNED` | 构建 Linux amd64 包与 SHA-256 校验清单。 |
 | 17 | GitHub Action 客户端 | `PLANNED` | 下载与 Action 版本匹配的二进制并校验哈希；真实发布前保持 `PARTIAL`。 |
 | 18 | C7 Artifact 与 Step Summary | `PLANNED` | 生成 JSON、Markdown、运行元数据与 Action 输出。 |
@@ -316,3 +316,13 @@ gofmt 检查
 - 验证：定向测试全部通过（8 个）；`go test ./...` 通过（8 包 ok）；`go test -race ./...` 通过（并发读写压测无数据竞争）；`go vet ./...` 退出码 0；`gofmt -l .` 无输出。初版测试自身存在两处缺陷（裸读内部字段的数据竞争、空列表断言错误）被竞态检测器与断言捕获，修正后复验通过——检测器按预期工作。
 - 限制：接口仅覆盖只读读取面，评论发布等写操作接口属切片 19；分页契约是页码+每页大小，GitHub Link 头的映射由切片 15 完成；无真实网络行为。
 - 下一功能：C6 GitHub 只读 REST 适配器（切片 15）。
+
+### 2026-09-12 - C6 GitHub 只读 REST 适配器
+
+- 状态：`DONE`。
+- 修改：新增 `server/internal/github/rest.go` 与 `rest_test.go`；更新 `spec/implementation-status.md`（顶部状态、检查点表 C6 行 completed 并补记 C5 行此前漏更的 completed、新增 C6 切片小节、已知限制与下一步计划替换为切片 16）；本文件任务表与日志同步。未修改 schema、协议文档，无需 ADR（REST 适配器落在切片 14 既有 `Client` 接口契约与 spec/05 第 8 节重试语义内）。
+- 行为：`RESTClient`（仅标准库）实现只读 `Client` 接口——PR 元数据（fork 三分支判定、响应 number 防误路由校验、base/head SHA 缺失报错）+ Link 头 `rel="next"` 驱动的分页文件列表（patch 缺失/null → nil，畸形 Link 报错不静默截断）；404→ErrNotFound、401/403→PermissionError（message 截断 256 rune）、429→RateLimitError（RetryAfter 取最后一次响应值）；按 spec/05 第 8 节重试（总尝试 4 次，仅 429/502/503/504 与传输错误可重试，Retry-After 优先、否则 500ms·2^n 指数退避，可注入 sleep，每次尝试前检查 ctx 取消）；响应体统一限长读取（默认 64 MiB）；错误信息绝不含 token、Authorization 值或原始响应体，无日志。owner/repo 拒绝 `/` 与空白防路径注入；无 token 时匿名请求保留 Fork 无 Secret 降级路径。`expectedHeadSHA` 因 files 端点不含 head SHA 仅做非空校验，竞态防护由编排层双查 `GetPullRequest` 实现（已记录，待编排接线切片落实）。
+- 执行方式说明：本轮首次采用双子代理并行开发——主会话先固化实现契约，一个子代理写 `rest.go`，另一个按同一契约写 `rest_test.go`，主会话集成审查并执行全量验证；两个交付物一次集成通过，无需手工修正。存量 signals 包 8 个文件在 `git status` 显示 modified 为 `core.autocrlf=true` 行尾假差异（`git diff` 内容为空），本轮未触碰、未提交。
+- 验证：`server/` 内 `go build ./...` 通过；`go test ./...` 通过（8 包 ok）；`go test -race ./...` 通过（8 包 ok）；`go vet ./...` 退出码 0；`gofmt -l` 对新增文件无输出；grep 确认实现与测试无任何真实 github.com 引用（全部请求指向 httptest 本地服务器）；`git diff --check` 通过。测试覆盖：15 个测试函数、39 个子测试，含 404/401/403/422/500 映射与不重试计数断言、503 重试后成功、429 带/不带 Retry-After 耗尽的退避序列逐项断言、网络错误 4 次尝试、非法 JSON、ctx 取消/超时、构造与参数校验 0 网络请求、响应体超限、畸形 Link 头、token 零泄露断言。
+- 限制：`expectedHeadSHA` 无法在 files 端点校验（编排层双检属后续接线切片）；Retry-After 仅整数秒格式、60s 退避上限为实现层口径；未对真实 GitHub API 联调；patch 截断标记与 renamed 的 previous_filename 等 GitHub 特有字段未建模，留给 ChangeSet 组装切片。
+- 下一功能：切片 16 版本化二进制发布构建。

@@ -2,11 +2,11 @@
 
 ## 当前状态
 
-- 项目阶段：Phase 1 - 离线确定性内核
-- 当前检查点：C6（GitHub 只读 REST 适配器）
-- 当前功能：`C6 GitHub 只读 REST 适配器`（下一功能）
-- 总体状态：in_progress（C5 Fake Client completed；C6 未开始）
-- 最后更新：2026-08-26
+- 项目阶段：Phase 2 - GitHub Action 只读接入
+- 当前检查点：C6（GitHub 只读 REST 适配器）completed
+- 当前功能：切片 16 版本化二进制发布构建（下一功能；其后依次为切片 17 Action 客户端、C7 Artifact 与 Step Summary）
+- 总体状态：in_progress（C6 GitHub 只读 REST 适配器 completed）
+- 最后更新：2026-09-12
 
 ## 检查点列表
 
@@ -17,8 +17,8 @@
 | C2     | unified diff 解析                      | completed   |
 | C3     | 确定性风险规则                         | completed   |
 | C4     | 风险策略和报告构建                     | completed   |
-| C5     | Fake GitHub Client                     | pending     |
-| C6     | GitHub API 接入                        | pending     |
+| C5     | Fake GitHub Client                     | completed   |
+| C6     | GitHub API 接入                        | completed   |
 | C7     | Artifact 和 Step Summary               | pending     |
 | C8     | 评论幂等发布                           | pending     |
 | C9     | AI Provider 和结构化输出校验           | pending     |
@@ -564,9 +564,39 @@
 - 接口仅覆盖本产品需要的只读读取面；评论发布等写操作接口属切片 19。
 - 分页采用页码+每页大小契约而非 GitHub 的 Link 头形态，HTTP 层映射由切片 15 完成。
 
+### C6 Slice：GitHub 只读 REST 适配器
+
+状态：completed（2026-09-12）
+
+完成内容：
+
+- 新增 `server/internal/github/rest.go`：`RESTClient` 实现切片 14 定义的只读 `Client` 接口（`GetPullRequest` + `ListPullRequestFilesPage`），仅用标准库 `net/http`，无新依赖；编译期断言满足接口。
+- 端点映射：`GET /repos/{owner}/{repo}/pulls/{number}` 返回 `PullRequestMeta`（Owner/Repo/Number 取自入参，base/head SHA 取自响应；IsFromFork = head.repo 为 null（Fork 已删除）或 head.repo.full_name != base.repo.full_name，base.repo 为 null 按空串比较）；`GET /repos/{owner}/{repo}/pulls/{number}/files?page&per_page` 返回 `FileEntry` 列表（status 原样透传、patch 缺失/null → nil、空数组/JSON null → 非 nil 空切片）。
+- 分页：NextPage 取自 Link 响应头 `rel="next"` 的 page 参数；无 Link 头为 0；存在 rel="next" 但 page 缺失或非正整数时报错，宁可报错不静默截断；跨页聚合复用切片 14 的接口级 `FetchAllFiles`。
+- 错误映射：404→`ErrNotFound`（%w 包裹，errors.Is 可命中）、401/403→`*PermissionError`（Message 取自错误体 JSON 的 message 字段并按 rune 截断 256，非法 JSON 为空串）、429→`*RateLimitError`（RetryAfter 取最后一次响应的 Retry-After 秒数，无则 0）、其他非 2xx 为含路径与状态码的普通错误；错误信息绝不包含 token、Authorization 头值或原始响应体；全程无日志。
+- 重试（spec/05 第 8 节、spec/03 第 6 节）：总尝试 4 次（首次 + 最多 3 次重试），仅 429/502/503/504 与传输错误可重试；429 带合法 Retry-After（整数秒）按其值退避（上限 60s），否则 500ms·2^attempt 指数退避；退避经可注入 sleep 执行，每次尝试前检查 ctx 取消，解码失败、响应体超限、参数错误与 ctx 取消一律不重试。
+- 安全与健壮性：owner/repo 拒绝空值、`/` 与空白字符防路径注入；baseURL 拒绝非 http(s)、query/fragment；响应体统一 `io.LimitReader`（默认 64 MiB），超限报错不重试；响应 number 与请求不一致报错防代理误路由；无 token 时匿名请求（Fork 无 Secret 降级路径可用）；固定 Accept/Api-Version/User-Agent 请求头。
+- 新增 `server/internal/github/rest_test.go`（15 个测试函数、39 个子测试，全部请求指向 httptest 本地 spy 服务器）：元数据映射与请求头断言（Bearer/匿名两种）、fork 三分支判定、非法元数据反例、单页与 Link 分页 + FetchAllFiles 聚合、404/401/403/422/500 错误映射与不重试请求计数断言、503 重试后成功（退避 500ms）、429 带/不带 Retry-After 耗尽（退避序列逐项断言）、网络错误 4 次尝试、非法 JSON 不重试、ctx 预取消 0 请求与超时不重试、构造与参数校验反例 0 网络请求、响应体超限、畸形 Link 头报错、错误信息不含 token 且带 `github:` 前缀、不回显响应体。
+- 执行方式：本轮由主会话并行派出两个子代理（一个实现、一个按同一先行契约编写测试），主会话负责契约制定、集成审查与全量验证；两个交付物一次集成通过，无需手工修正。
+
+验证结果：
+
+- `go build ./...` 通过。
+- `go test ./...` 通过（8 包 ok）。
+- `go test -race ./...` 通过（8 包 ok）。
+- `go vet ./...` 退出码 0；`gofmt -l` 对新增文件无输出（存量 signals 包 8 个文件为 `core.autocrlf` 行尾假差异，`git diff` 内容为空，本轮未触碰）。
+- 安全检查：grep 确认实现与测试无任何真实 github.com 引用；`git diff --check` 通过。
+
+已知限制：
+
+- files 端点响应不含 head SHA，REST 实现无法在单请求内校验 `expectedHeadSHA`（本层仅做非空校验并保留接口契约）；竞态防护由编排层在列取文件前后各调用一次 `GetPullRequest` 对比实现，待接入 CLI/Action 编排的切片落实。
+- Retry-After 仅支持整数秒格式（GitHub 当前形态），不支持 HTTP-date；60s 退避上限为实现层保护值。
+- 尚未接入 CLI 或 Action 编排，也未对真实 GitHub API 联调；GitHub 特有响应形态（patch 截断标记、renamed 的 previous_filename 等）本层未建模，留给 ChangeSet 组装切片。
+- 评论发布等写操作接口、Artifact 与 Step Summary 属后续切片。
+
 ## 已知限制
 
-- 当前没有接入真实 GitHub API。
+- REST 适配器已实现但尚未接入 CLI/Action 编排，也未对真实 GitHub API 联调验证。
 - 当前没有接入真实模型。
 - 当前没有实现 PR 评论发布。
 - 当前已实现 `CR-SEC-001`、`CR-API-001`、`CR-EXEC-001`、`CR-DATA-001`、`CR-REL-001`、`CR-CON-001`、`CR-SC-001`、`CR-SEC-002`、`CR-SEC-003` 和 `CR-TEST-001`，其余风险规则仍在设计/实现阶段。
@@ -577,18 +607,17 @@
 
 ## 下一步计划
 
-### 下一功能：C6 GitHub 只读 REST 适配器（切片 15）
+### 下一功能：切片 16 版本化二进制发布构建
 
 目标：
 
-- 新增真实 REST 适配器实现 C5 定义的 `Client` 接口：读取 PR 元数据与分页文件列表（含 patch），并把 HTTP 状态码映射到既有的类型化错误（404→ErrNotFound、429→RateLimitError 并解析 Retry-After 头、401/403→PermissionError）。
-- head SHA 校验沿用接口参数语义；不执行 PR 代码、不访问真实 github.com——HTTP 层用 `httptest` 起本地服务器测试。
+- 提供可复现的发布构建：构建 Linux amd64 分析二进制包与 SHA-256 校验清单，版本号在构建期注入（与 `--version` 输出一致），为切片 17 的 Action 下载校验做准备。
+- 不引入浮动依赖，不发布含真实 Token 或真实仓库信息的产物。
 
 前置条件：
 
-- C5 接口与错误分类学完成（已满足）。
+- C6 完成（已满足）。
 
 验收标准：
 
-- httptest 覆盖：正常分页聚合、429 带 Retry-After 解析、401/403 权限、404、其他非 2xx 状态、非法 JSON 响应体。
-- 对真实 github.com 零请求；全量既有测试继续通过；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
+- 构建命令可重复执行并产出稳定 SHA-256 校验清单；`--version` 与构建注入的版本一致；校验清单可被独立脚本复核；全量测试继续通过；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
