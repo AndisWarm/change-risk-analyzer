@@ -346,3 +346,11 @@ gofmt 检查
 - 验证：`bash client/test/install_test.sh` 通过（10 个子用例：正常安装/GITHUB_OUTPUT/幂等/篡改拒绝/浮动版本预拒绝/清单缺项/多行/版本冒烟不符/恶意成员零逃逸/不可达源拒绝；测试期间修正三处测试自身缺陷——run_server 漏传参数、fixture 未按版本子目录布局、篡改目标路径错误，均为测试代码问题而非 install.sh 缺陷）；`client/action.yml` 经 PyYAML 结构校验；`server/` 内 `go test ./...` 保持通过（8 包 ok）。
 - 限制：真实 GitHub Releases 上传渠道未建立，安装器仅本地 HTTP/file 形态验证；未在真实 runner 验证 composite 端到端（action_ref 语义、GITHUB_OUTPUT）；仅 linux-amd64；Action 模式（自动获取 PR 文件）未接线。
 - 下一功能：C7 Artifact 与 Step Summary（切片 18）。
+
+### 2026-09-13 - 行尾规范化（.gitattributes）
+
+- 状态：`DONE`（仓库工具链修正，非功能切片）。
+- 修改：新增 `.gitattributes`（`* text=auto eol=lf`）；仓库本地设置 `core.autocrlf=false`（系统级 Git 配置仍为 true，不再影响本仓库）；按 HEAD blob 原始字节重写全部已跟踪文件，清除工作区残留的 28 个 CRLF 与 4 个混合行尾文件。
+- 背景：Windows 系统 `core.autocrlf=true` 下，历史上以 CRLF 写入工作区的 8 个 signals 文件长期显示无法提交的假差异（status 显示 M 而 `git diff` 内容为空），反复干扰开发会话；诊断工具为 `git ls-files --eol`（索引 LF / 工作区 CRLF）。
+- 验证：`git ls-files --eol` 全部 86 文件 `w/lf`；`git status --short` 完全干净；`gofmt -l .`（server/）无输出（此前 8 个文件被标记）；`go test ./...` 通过；重写后文件经 `cmp` 与 HEAD blob 逐字节一致。
+- 影响：后续克隆（含 Windows）将一律检出 LF；本机 gofmt 噪音与假差异消失。仅行尾字节变化，无任何内容语义变化。
