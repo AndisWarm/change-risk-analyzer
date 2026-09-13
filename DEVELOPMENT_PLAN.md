@@ -38,10 +38,9 @@
 目标目录已在“工程目录迁移”切片（切片 2，`DONE`）中建立目录骨架；下图为目标形态，其中部分子项（如 `client/action.yml` 与 CLI 入口）仍待后续切片创建，不代表当前已存在：
 
 ```text
-client/                         GitHub Action 包装层
+client/                         GitHub Action 包装层（composite，零第三方依赖）
   action.yml
-  package.json
-  src/
+  install.sh
   test/
 server/                         Go 分析内核
   go.mod
@@ -158,7 +157,7 @@ gofmt 检查
 | 14 | C5 Fake GitHub Client | `DONE` | 接口+内存假客户端覆盖分页、429、超时取消、权限错误和 head SHA 校验，-race 通过。 |
 | 15 | C6 GitHub 只读 REST 适配器 | `DONE` | RESTClient 实现只读 Client 接口：PR 元数据、Link 头分页文件列表、状态码错误映射与 spec/05 §8 重试；httptest 全覆盖，不访问真实 github.com。 |
 | 16 | 版本化二进制发布构建 | `DONE` | `scripts/build-release.sh` 产出 linux/amd64 静态二进制包 + RELEASE_INFO 来源说明 + SHA-256 校验清单；重复构建逐字节一致；版本经 `-ldflags -X main.AnalyzerVersion` 注入并有测试固化。 |
-| 17 | GitHub Action 客户端 | `PLANNED` | 下载与 Action 版本匹配的二进制并校验哈希；真实发布前保持 `PARTIAL`。 |
+| 17 | GitHub Action 客户端 | `PARTIAL` | install.sh（精确版本下载 + SHA-256 校验 + 成员路径校验 + --version 冒烟）与 composite action.yml 已通过本地集成测试；真实 Releases 产物与 Action 模式接线前不得标 DONE。 |
 | 18 | C7 Artifact 与 Step Summary | `PLANNED` | 生成 JSON、Markdown、运行元数据与 Action 输出。 |
 | 19 | C8 幂等评论发布 | `PLANNED` | marker 查找、创建、更新和旧 head SHA 保护均由 Fake Server 验证。 |
 | 20 | 上下文裁剪与脱敏 | `PLANNED` | 不可信文本、长度预算、脱敏和截断原因可验证。 |
@@ -337,3 +336,13 @@ gofmt 检查
 - 验证：`go build ./...`、`go vet ./...`、`gofmt -l`（新增文件无输出）、`go test ./...`（8 包 ok）、`go test -race ./...`（8 包 ok）通过；发布脚本连续两次构建校验清单 diff 为空（确定性）；`cd dist && sha256sum -c` 独立复核通过；`tar -tzvf` 确认包内仅二进制 + RELEASE_INFO 且 mtime=1970-01-01、属主 0/0；`strings` 确认包内二进制含 `v0.1.0` 且不含 `0.1.0-dev`；本机原生构建注入后 `--version` 与 `analyze --version` 均输出注入版本；新增 `version_test.go`（2 个测试）固化「--version 与报告字段使用注入值 + 报告仍过 schema」与「默认值保留 dev 后缀」。
 - 限制：仅 linux/amd64 单平台；脚本依赖 GNU tar/gzip/sha256sum；校验和稳定性以同一提交+同一工具链为前提，跨机可重复性未实测；版本格式暂不支持预发布后缀；产物无数字签名，信任链为校验清单 + 来源说明；未发布任何产物到远端。
 - 下一功能：切片 17 GitHub Action 客户端。
+
+### 2026-09-13 - 切片 17 GitHub Action 客户端
+
+- 状态：`PARTIAL`（安装校验链路 completed 并通过本地集成测试；真实 Releases 产物不存在、Action 模式未接线，整体保持 PARTIAL，不得声称 Action 已可安装）。
+- 修改：新增 `client/install.sh`、`client/action.yml`、`client/test/install_test.sh`；重写 `client/README.md`（中文，PARTIAL 边界与安全约定）；更新 `spec/implementation-status.md`（顶部状态、新增切片 17 小节、下一步计划替换为 C7）；本文件任务表与第 3 节目录草图（package.json/src 形态改为 composite+install.sh）与日志同步。未修改 schema、协议文档，无需 ADR（spec/03 对 client 运行时无规定，spec/05 顶层 Action 契约未变）。
+- 行为：install.sh 按 `<release-base>/<version>/<资产>` 下载发布包与校验清单——版本必须精确匹配 `vMAJOR.MINOR.PATCH`（latest/v1/分支名在任何下载前拒绝，与自身 CR-SC-001 一致）；SHA-256 逐字符比对（清单缺行/多行歧义即拒绝）；解压前逐成员校验路径拒绝穿越与绝对路径；安装后 `--version` 冒烟校验身份（保证「安装的即所请求的」）；curl 有限重试+超时上限；GITHUB_OUTPUT 输出 path=/version=。action.yml 为零第三方依赖 composite：输入经 env 传入避免 run 块插值注入；无 diff-path 时明确报错退出（Action 模式属后续切片），有 diff-path 时以 GITHUB_EVENT_PATH 执行离线分析并输出 report-path。
+- 设计决策：包装层从草图中的 Node/package.json 形态改为 composite + 零依赖 bash——消除 npm 供应链面（spec/08 第 10 节），spec/05 固定 ubuntu-latest 使 bash 可用；spec/03 只规定 client「下载并启动已校验二进制」，运行时属实现细节。已同步第 3 节草图。
+- 验证：`bash client/test/install_test.sh` 通过（10 个子用例：正常安装/GITHUB_OUTPUT/幂等/篡改拒绝/浮动版本预拒绝/清单缺项/多行/版本冒烟不符/恶意成员零逃逸/不可达源拒绝；测试期间修正三处测试自身缺陷——run_server 漏传参数、fixture 未按版本子目录布局、篡改目标路径错误，均为测试代码问题而非 install.sh 缺陷）；`client/action.yml` 经 PyYAML 结构校验；`server/` 内 `go test ./...` 保持通过（8 包 ok）。
+- 限制：真实 GitHub Releases 上传渠道未建立，安装器仅本地 HTTP/file 形态验证；未在真实 runner 验证 composite 端到端（action_ref 语义、GITHUB_OUTPUT）；仅 linux-amd64；Action 模式（自动获取 PR 文件）未接线。
+- 下一功能：C7 Artifact 与 Step Summary（切片 18）。

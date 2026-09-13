@@ -3,9 +3,9 @@
 ## 当前状态
 
 - 项目阶段：Phase 2 - GitHub Action 只读接入
-- 当前检查点：C6（GitHub 只读 REST 适配器）completed；下一检查点 C7
-- 当前功能：切片 17 GitHub Action 客户端（下一功能）
-- 总体状态：in_progress（切片 16 版本化二进制发布构建 completed）
+- 当前检查点：C6 completed；下一检查点 C7（Artifact 与 Step Summary）
+- 当前功能：C7 Artifact 与 Step Summary（下一功能，切片 18）
+- 总体状态：in_progress（切片 17 GitHub Action 客户端 completed 本地部分，整体 PARTIAL）
 - 最后更新：2026-09-13
 
 ## 检查点列表
@@ -620,6 +620,32 @@
 - 版本格式严格限定 `vMAJOR.MINOR.PATCH`，暂不支持预发布后缀（如 `v0.1.0-rc.1`）；发布产物无数字签名，信任链 = SHA-256 校验清单 + RELEASE_INFO 来源说明。
 - Action 侧下载与校验属切片 17，本切片不发布任何产物到远端。
 
+### 切片 17：GitHub Action 客户端（非检查点辅助交付）
+
+状态：PARTIAL（2026-09-13）——安装校验链路 completed 并通过本地集成测试；整体保持 PARTIAL，因为真实 GitHub Releases 尚无发布产物，且 Action 模式（自动获取 PR 文件）未接线。
+
+完成内容：
+
+- 新增 `client/install.sh`：按精确版本下载、校验并安装分析二进制。安全设计：版本必须精确匹配 `vMAJOR.MINOR.PATCH`，`latest`/`v1`/分支名等一切浮动引用在任何下载发生前拒绝（与自身 CR-SC-001 规则一致）；发布包与校验清单来自同一发布版本（`<release-base>/<version>/<资产名>`，对应 GitHub Releases 扁平资产布局），逐字符比对 SHA-256，不匹配或清单缺行/多行歧义即拒绝；解压前逐个校验归档成员路径，拒绝绝对路径与 `..` 穿越；安装后执行二进制 `--version` 冒烟校验，无法执行（架构不符）或自报版本与请求不符即拒绝——保证「安装的即所请求的」；下载用 curl 有限重试（3 次）与连接/总时长上限（spec/05 第 8 节）；存在 `GITHUB_OUTPUT` 时输出 `path=`/`version=` 供后续步骤引用。
+- 新增 `client/action.yml`：composite Action（零第三方 Action 依赖，消除 npm 供应链面，对应 spec/08 第 10 节纪律）。输入 `analyzer-version`（默认取调用引用）、`release-base`、`diff-path`（离线模式）、`output-dir`；输出 `analyzer-version`、`binary-path`、`report-path`。安装步骤调用 install.sh；分析步骤在无 `diff-path` 时明确报错退出（Action 模式属后续切片），有 `diff-path` 时以 `$GITHUB_EVENT_PATH` + diff 执行离线分析并写出报告。全部输入经 `env:` 传入脚本再引用，避免 run 块插值注入。
+- 新增 `client/test/install_test.sh`：本地集成测试（python3 http.server 起本地服务器 + go build 现场构建注入版本的 fixture 二进制，全部请求只打向 127.0.0.1），10 个子用例覆盖：正常安装与 GITHUB_OUTPUT 写入、重复执行幂等、篡改哈希拒绝（且失败零残留）、浮动版本在任何下载前拒绝、清单缺项/多行歧义拒绝、安装后自报版本不符拒绝、恶意归档成员（穿越/绝对路径）拒绝且零逃逸、下载源不可达拒绝。
+- 重写 `client/README.md`（中文）：说明 PARTIAL 边界、安全约定、用法示例（固定精确标签）与本地测试方法。
+- 设计决策：包装层采用 composite action + 零依赖 bash，而非 DEVELOPMENT_PLAN 第 3 节草图的 Node/package.json 形态——spec/03 只规定 client「下载并启动已校验二进制」未规定运行时；该差异已同步回总控计划草图。
+
+验证结果：
+
+- `bash client/test/install_test.sh` 全部用例通过（10 个子用例）。
+- `client/action.yml` 经 PyYAML 结构校验（composite、steps/inputs/outputs 符合预期）。
+- `server/` 内 `go test ./...` 保持通过（8 包 ok，本轮无 Go 源码变更）。
+- 安全检查：测试全部请求只指向本地回环；恶意成员用例断言零文件逃逸；篡改用例断言失败后无安装残留。
+
+已知限制：
+
+- 真实 GitHub Releases 尚无发布产物：发布渠道上传（如 `gh release`）未建立，安装器仅在本地 HTTP/file 形态验证。
+- Action 模式（自动获取 PR 文件与 patch）未接线：当前二进制仅支持离线 analyze（需显式 diff-path）；接线属 ChangeSet 组装 + 编排切片。
+- 未在真实 GitHub runner 上验证 composite action 端到端行为（`github.action_ref` 默认值语义、GITHUB_OUTPUT 等）。
+- 仅支持 linux-amd64 产物（与切片 16 发布平台一致）。
+
 ## 已知限制
 
 - REST 适配器已实现但尚未接入 CLI/Action 编排，也未对真实 GitHub API 联调验证。
@@ -633,18 +659,17 @@
 
 ## 下一步计划
 
-### 下一功能：切片 17 GitHub Action 客户端
+### 下一功能：C7 Artifact 与 Step Summary（切片 18）
 
 目标：
 
-- 在 `client/` 建立 GitHub Action 包装层：按 Action 版本精确匹配并下载已发布的分析二进制，用 SHA-256 校验清单校验哈希后启动分析；`client/` 不提供网页界面、不导入 `server/internal`。
-- 真实版本化发布可用前保持 `PARTIAL`，不得声称 Action 已可安装使用。
+- 把已生成的 `risk-report.json` / `risk-report.md` 接入发布链路：产出 `run-metadata.json`（版本、耗时、输入计数与降级原因，不含代码与 Secret）、Artifact 命名（`change-risk-report-pr-<number>-<head-sha-short>`）与 Action outputs（`report-path`、`report-status`、`risk-level`、`risk-score`、`finding-count`、`degradation-count`）。
+- 发布失败通过状态与降级原因反映，不修改已生成的报告（spec/03 第 3 节 publish 职责）。
 
 前置条件：
 
-- 切片 16 发布构建完成（已满足）；真实发布产物与发布渠道在切片 17 内以 Fake/本地形态先行验证。
+- 切片 16/17 完成（已满足）；报告构建与 Markdown 渲染已有金样（C4）。
 
 验收标准：
 
-- 下载地址与哈希均来自与 Action 版本精确匹配的清单，禁止浮动 latest；哈希不匹配时拒绝启动并输出明确错误。
-- 输入仅通过环境变量与参数传递，不执行仓库内脚本；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
+- `run-metadata.json` 内容与 spec/05 第 6 节一致且无敏感字段；Artifact 名称含 PR number 与 head 短 SHA；Action outputs 数值来自报告本体而非环境推断；发布失败不影响报告文件本身；Fake/本地形态验证，`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
