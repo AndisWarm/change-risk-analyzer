@@ -34,8 +34,11 @@ import (
 )
 
 // AnalyzerVersion 同时用于 --version 输出与报告 analyzer_version 字段。
-// 离线内核阶段带 dev 后缀；版本化二进制发布属后续切片（任务表切片 16）。
-const AnalyzerVersion = "0.1.0-dev"
+// 必须保持包级 var 以支持构建期注入：发布构建（scripts/build-release.sh）
+// 通过 -ldflags "-X main.AnalyzerVersion=<版本>" 写入发布版本（main 包的
+// -X 符号固定使用 main. 前缀，完整导入路径形式不生效）；未注入时保持
+// dev 后缀默认值。
+var AnalyzerVersion = "0.1.0-dev"
 
 // 报告输出文件名与 spec/05-github-action-contract.md 第 6 节 Artifact 约定一致。
 const (
