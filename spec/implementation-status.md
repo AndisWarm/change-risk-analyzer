@@ -3,10 +3,10 @@
 ## 当前状态
 
 - 项目阶段：Phase 2 - GitHub Action 只读接入
-- 当前检查点：C6（GitHub 只读 REST 适配器）completed
-- 当前功能：切片 16 版本化二进制发布构建（下一功能；其后依次为切片 17 Action 客户端、C7 Artifact 与 Step Summary）
-- 总体状态：in_progress（C6 GitHub 只读 REST 适配器 completed）
-- 最后更新：2026-09-12
+- 当前检查点：C6（GitHub 只读 REST 适配器）completed；下一检查点 C7
+- 当前功能：切片 17 GitHub Action 客户端（下一功能）
+- 总体状态：in_progress（切片 16 版本化二进制发布构建 completed）
+- 最后更新：2026-09-13
 
 ## 检查点列表
 
@@ -594,6 +594,32 @@
 - 尚未接入 CLI 或 Action 编排，也未对真实 GitHub API 联调；GitHub 特有响应形态（patch 截断标记、renamed 的 previous_filename 等）本层未建模，留给 ChangeSet 组装切片。
 - 评论发布等写操作接口、Artifact 与 Step Summary 属后续切片。
 
+### 切片 16：版本化二进制发布构建（非检查点辅助交付）
+
+状态：completed（2026-09-13）
+
+完成内容：
+
+- 新增 `scripts/build-release.sh`：`scripts/build-release.sh <version>`（严格校验 `vMAJOR.MINOR.PATCH` 格式）在仓库根 `dist/`（已被 .gitignore 忽略）产出 Linux amd64 静态二进制发布包与 SHA-256 校验清单；构建前强制运行全量测试作为发布门禁，构建后内置 `sha256sum -c` 自检。
+- 包内容：顶层目录 `go-risk-analyzer-<version>-linux-amd64/` 内含静态分析二进制（`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`，`-trimpath -buildvcs=false -s -w`）与来源说明 `RELEASE_INFO.txt`（版本、提交 SHA、平台、Go 工具链版本、构建命令，对应 spec/08 第 10 节「校验和 + 来源说明」）。
+- 可重复性口径：二进制剥离本地路径与 VCS 状态烙印（提交 SHA 只记录在 RELEASE_INFO.txt，不进二进制）；归档 `tar --sort=name --mtime='1970-01-01 UTC' --owner=0 --group=0 --numeric-owner` + `gzip -n` 固定排序、时间戳与属主。同一提交 + 同一工具链重复构建实测逐字节一致（两次构建校验清单 diff 为空）。
+- 版本注入：`server/cmd/go-risk-analyzer/app.go` 的 `AnalyzerVersion` 由 `const` 改为包级 `var`（默认仍 `0.1.0-dev`），经 `-ldflags "-X main.AnalyzerVersion=<version>"` 注入；已验证 main 包的 `-X` 符号固定使用 `main.` 前缀，完整导入路径形式不生效（该结论写入代码注释）。`--version` 与报告 `analyzer_version` 同步使用注入值。
+- 新增 `server/cmd/go-risk-analyzer/version_test.go`（2 个测试）：白盒把 `AnalyzerVersion` 置为注入值后，断言 `--version` 输出与端到端报告 `analyzer_version` 均使用注入值且报告仍通过 schema 校验；未注入时默认值保留 `-dev` 后缀。
+
+验证结果：
+
+- `go build ./...`、`go vet ./...`、`gofmt -l`（新增文件无输出）、`go test ./...`（8 包 ok）、`go test -race ./...`（8 包 ok）全部通过。
+- `bash scripts/build-release.sh v0.1.0` 连续执行两次：校验清单逐字节一致；`cd dist && sha256sum -c checksums-v0.1.0-linux-amd64.txt` 独立复核通过。
+- 包内清单 `tar -tzvf` 确认仅含二进制与 RELEASE_INFO.txt 且 mtime/属主固定为 1970-01-01 与 0/0；`strings` 确认包内二进制含注入版本 `v0.1.0` 且不再含默认 `0.1.0-dev`。
+- 本机可执行注入链路验证：原生 `go build -ldflags "-X main.AnalyzerVersion=v0.1.0"` 后 `--version` 与 `analyze --version` 均输出 `v0.1.0`（Linux 产物在 Windows 上不可执行，故以此验证注入语义）。
+
+已知限制：
+
+- 仅构建 linux/amd64 单平台；脚本依赖 GNU tar/gzip/sha256sum（Linux CI 与 Git Bash 环境均满足）。
+- 校验和稳定性以「同一提交 + 同一 Go 工具链」为前提（Go 不承诺跨工具链版本字节一致）；跨机器可重复性已通过 `-trimpath`/`-buildvcs=false` 最大化，但未做跨机实测。
+- 版本格式严格限定 `vMAJOR.MINOR.PATCH`，暂不支持预发布后缀（如 `v0.1.0-rc.1`）；发布产物无数字签名，信任链 = SHA-256 校验清单 + RELEASE_INFO 来源说明。
+- Action 侧下载与校验属切片 17，本切片不发布任何产物到远端。
+
 ## 已知限制
 
 - REST 适配器已实现但尚未接入 CLI/Action 编排，也未对真实 GitHub API 联调验证。
@@ -607,17 +633,18 @@
 
 ## 下一步计划
 
-### 下一功能：切片 16 版本化二进制发布构建
+### 下一功能：切片 17 GitHub Action 客户端
 
 目标：
 
-- 提供可复现的发布构建：构建 Linux amd64 分析二进制包与 SHA-256 校验清单，版本号在构建期注入（与 `--version` 输出一致），为切片 17 的 Action 下载校验做准备。
-- 不引入浮动依赖，不发布含真实 Token 或真实仓库信息的产物。
+- 在 `client/` 建立 GitHub Action 包装层：按 Action 版本精确匹配并下载已发布的分析二进制，用 SHA-256 校验清单校验哈希后启动分析；`client/` 不提供网页界面、不导入 `server/internal`。
+- 真实版本化发布可用前保持 `PARTIAL`，不得声称 Action 已可安装使用。
 
 前置条件：
 
-- C6 完成（已满足）。
+- 切片 16 发布构建完成（已满足）；真实发布产物与发布渠道在切片 17 内以 Fake/本地形态先行验证。
 
 验收标准：
 
-- 构建命令可重复执行并产出稳定 SHA-256 校验清单；`--version` 与构建注入的版本一致；校验清单可被独立脚本复核；全量测试继续通过；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。
+- 下载地址与哈希均来自与 Action 版本精确匹配的清单，禁止浮动 latest；哈希不匹配时拒绝启动并输出明确错误。
+- 输入仅通过环境变量与参数传递，不执行仓库内脚本；`spec/implementation-status.md` 与 `DEVELOPMENT_PLAN.md` 同步回写。

@@ -157,7 +157,7 @@ gofmt 检查
 | 13 | 离线 CLI | `DONE` | `go-risk-analyzer analyze --event --diff --output` 可完成无网络分析。 |
 | 14 | C5 Fake GitHub Client | `DONE` | 接口+内存假客户端覆盖分页、429、超时取消、权限错误和 head SHA 校验，-race 通过。 |
 | 15 | C6 GitHub 只读 REST 适配器 | `DONE` | RESTClient 实现只读 Client 接口：PR 元数据、Link 头分页文件列表、状态码错误映射与 spec/05 §8 重试；httptest 全覆盖，不访问真实 github.com。 |
-| 16 | 版本化二进制发布构建 | `PLANNED` | 构建 Linux amd64 包与 SHA-256 校验清单。 |
+| 16 | 版本化二进制发布构建 | `DONE` | `scripts/build-release.sh` 产出 linux/amd64 静态二进制包 + RELEASE_INFO 来源说明 + SHA-256 校验清单；重复构建逐字节一致；版本经 `-ldflags -X main.AnalyzerVersion` 注入并有测试固化。 |
 | 17 | GitHub Action 客户端 | `PLANNED` | 下载与 Action 版本匹配的二进制并校验哈希；真实发布前保持 `PARTIAL`。 |
 | 18 | C7 Artifact 与 Step Summary | `PLANNED` | 生成 JSON、Markdown、运行元数据与 Action 输出。 |
 | 19 | C8 幂等评论发布 | `PLANNED` | marker 查找、创建、更新和旧 head SHA 保护均由 Fake Server 验证。 |
@@ -326,3 +326,14 @@ gofmt 检查
 - 验证：`server/` 内 `go build ./...` 通过；`go test ./...` 通过（8 包 ok）；`go test -race ./...` 通过（8 包 ok）；`go vet ./...` 退出码 0；`gofmt -l` 对新增文件无输出；grep 确认实现与测试无任何真实 github.com 引用（全部请求指向 httptest 本地服务器）；`git diff --check` 通过。测试覆盖：15 个测试函数、39 个子测试，含 404/401/403/422/500 映射与不重试计数断言、503 重试后成功、429 带/不带 Retry-After 耗尽的退避序列逐项断言、网络错误 4 次尝试、非法 JSON、ctx 取消/超时、构造与参数校验 0 网络请求、响应体超限、畸形 Link 头、token 零泄露断言。
 - 限制：`expectedHeadSHA` 无法在 files 端点校验（编排层双检属后续接线切片）；Retry-After 仅整数秒格式、60s 退避上限为实现层口径；未对真实 GitHub API 联调；patch 截断标记与 renamed 的 previous_filename 等 GitHub 特有字段未建模，留给 ChangeSet 组装切片。
 - 下一功能：切片 16 版本化二进制发布构建。
+
+### 2026-09-13 - 切片 16 版本化二进制发布构建
+
+- 状态：`DONE`（非 C 检查点辅助交付；C7 仍为下一检查点）。
+- 修改：新增 `scripts/build-release.sh` 与 `server/cmd/go-risk-analyzer/version_test.go`；修改 `server/cmd/go-risk-analyzer/app.go`（`AnalyzerVersion` 由 `const` 改为包级 `var`，默认值 `0.1.0-dev` 不变）；更新 `spec/implementation-status.md`（顶部状态、新增切片 16 小节、下一步计划替换为切片 17）；本文件任务表与日志同步。未修改 schema、协议文档，无需 ADR（未改变模块边界、权限或部署形态）。
+- 行为：`scripts/build-release.sh <version>`（严格校验 `vMAJOR.MINOR.PATCH`）在仓库根 `dist/`（.gitignore 已覆盖）产出 Linux amd64 静态二进制包（`CGO_ENABLED=0 GOOS=linux GOARCH=amd64 -trimpath -buildvcs=false -s -w`）+ 来源说明 `RELEASE_INFO.txt`（版本/提交 SHA/工具链，对应 spec/08 第 10 节校验和+来源说明）+ SHA-256 校验清单，构建前强制全量测试、构建后内置 `sha256sum -c` 自检；归档按文件名排序、固定 mtime/属主、`gzip -n` 去时间戳，同一提交+同一工具链重复构建实测逐字节一致；版本经 `-ldflags -X main.AnalyzerVersion` 注入，`--version` 与报告 `analyzer_version` 同步。
+- 关键发现：main 包的 `-X` 符号固定使用 `main.` 前缀，完整导入路径（`change-risk-analyzer/cmd/go-risk-analyzer.AnalyzerVersion`）形式静默不生效——首轮验证发现包内二进制仍为默认版本后改为 `-X main.AnalyzerVersion` 并重新构建验证；该结论已写入代码注释防止回退。
+- 执行方式说明：本切片小而串行（一个脚本 + 一个变量改动 + 一个测试），由主会话直接实现，未启用子代理并行。
+- 验证：`go build ./...`、`go vet ./...`、`gofmt -l`（新增文件无输出）、`go test ./...`（8 包 ok）、`go test -race ./...`（8 包 ok）通过；发布脚本连续两次构建校验清单 diff 为空（确定性）；`cd dist && sha256sum -c` 独立复核通过；`tar -tzvf` 确认包内仅二进制 + RELEASE_INFO 且 mtime=1970-01-01、属主 0/0；`strings` 确认包内二进制含 `v0.1.0` 且不含 `0.1.0-dev`；本机原生构建注入后 `--version` 与 `analyze --version` 均输出注入版本；新增 `version_test.go`（2 个测试）固化「--version 与报告字段使用注入值 + 报告仍过 schema」与「默认值保留 dev 后缀」。
+- 限制：仅 linux/amd64 单平台；脚本依赖 GNU tar/gzip/sha256sum；校验和稳定性以同一提交+同一工具链为前提，跨机可重复性未实测；版本格式暂不支持预发布后缀；产物无数字签名，信任链为校验清单 + 来源说明；未发布任何产物到远端。
+- 下一功能：切片 17 GitHub Action 客户端。
