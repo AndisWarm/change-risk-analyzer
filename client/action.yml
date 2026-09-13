@@ -1,0 +1,75 @@
+name: 'Change Risk Analyzer'
+description: >-
+  只读分析 Pull Request 代码变更风险：按精确版本下载并校验已发布的分析二进制，
+  生成结构化 JSON/Markdown 报告。不执行 Pull Request 代码，不自动修改或合并。
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  analyzer-version:
+    description: >-
+      分析二进制精确版本（vMAJOR.MINOR.PATCH）。默认取本 Action 的调用引用；
+      latest、v1 等浮动引用会被安装器拒绝——请固定完整版本标签，或显式传入本输入。
+    required: false
+    default: ${{ github.action_ref }}
+  release-base:
+    description: >-
+      发布资产下载基础地址，安装器按 <base>/<version>/<资产名> 拼接下载地址。
+    required: false
+    default: 'https://github.com/AndisWarm/change-risk-analyzer/releases/download'
+  diff-path:
+    description: >-
+      离线分析输入：unified diff 文件路径。自动获取 PR 文件与 patch 的 Action
+      模式尚未接线（属后续切片，见 spec/implementation-status.md）；未提供本
+      输入时本 Action 将明确报错退出，不会静默跳过分析。
+    required: false
+  output-dir:
+    description: 报告输出目录。
+    required: false
+    default: ${{ runner.temp }}/change-risk-report
+
+outputs:
+  analyzer-version:
+    description: 实际安装的分析二进制版本（经 --version 冒烟校验）。
+    value: ${{ steps.install.outputs.version }}
+  binary-path:
+    description: 已安装分析二进制的绝对路径。
+    value: ${{ steps.install.outputs.path }}
+  report-path:
+    description: risk-report.json 的绝对路径（分析成功时）。
+    value: ${{ steps.analyze.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        RELEASE_BASE: ${{ inputs.release-base }}
+        ANALYZER_VERSION: ${{ inputs.analyzer-version }}
+      run: |
+        "${GITHUB_ACTION_PATH}/install.sh" \
+          --release-base "$RELEASE_BASE" \
+          --version "$ANALYZER_VERSION" \
+          --install-dir "${RUNNER_TEMP}/change-risk-analyzer-bin"
+
+    - id: analyze
+      shell: bash
+      env:
+        BINARY_PATH: ${{ steps.install.outputs.path }}
+        DIFF_PATH: ${{ inputs.diff-path }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+        if [ -z "$DIFF_PATH" ]; then
+          echo "错误：Action 模式（自动获取 PR 文件与 patch）尚未接线，属后续切片。" >&2
+          echo "当前仅支持离线分析：请通过 diff-path 输入显式提供 unified diff 文件。" >&2
+          exit 1
+        fi
+        mkdir -p "$OUTPUT_DIR"
+        "$BINARY_PATH" analyze \
+          --event "$GITHUB_EVENT_PATH" \
+          --diff "$DIFF_PATH" \
+          --output "$OUTPUT_DIR"
+        echo "report-path=$OUTPUT_DIR/risk-report.json" >> "$GITHUB_OUTPUT"
